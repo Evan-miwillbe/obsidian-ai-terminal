@@ -3,7 +3,8 @@ mod pipe_relay;
 
 use std::env;
 use std::process;
-use windows::Win32::Foundation::CloseHandle;
+use windows::Win32::Foundation::{CloseHandle, HANDLE};
+use windows::Win32::System::Console::{GetStdHandle, STD_INPUT_HANDLE};
 use windows::Win32::System::Threading::{WaitForSingleObject, GetExitCodeProcess, INFINITE};
 
 fn main() {
@@ -18,7 +19,11 @@ fn main() {
     let cwd = &args[3];
     let shell = &args[4];
 
-    // 환경변수 설정
+    // stdin 핸들 캐시
+    let stdin_handle = unsafe {
+        GetStdHandle(STD_INPUT_HANDLE).unwrap_or(HANDLE::default())
+    };
+
     let env_block = conpty::build_env_block(&[
         ("TERM", "xterm-256color"),
         ("COLORTERM", "truecolor"),
@@ -26,7 +31,7 @@ fn main() {
         ("LINES", &rows.to_string()),
     ]);
 
-    // ConPTY 생성
+    // Named Pipe 기반 ConPTY 생성
     let pty = match conpty::ConPty::new(cols, rows) {
         Ok(p) => p,
         Err(e) => {
@@ -44,9 +49,9 @@ fn main() {
         }
     };
 
-    // I/O 릴레이 시작
-    let output_thread = pipe_relay::relay_output(pty.output_read);
-    let input_thread = pipe_relay::relay_input(pty.input_write, &pty);
+    // I/O 릴레이 (named pipe 클라이언트 핸들 사용)
+    let output_thread = pipe_relay::relay_output(pty.output_client);
+    let _input_thread = pipe_relay::relay_input(pty.input_client, &pty, stdin_handle);
 
     // 자식 프로세스 종료 대기
     unsafe {
@@ -59,11 +64,9 @@ fn main() {
         let _ = CloseHandle(pi.hThread);
         let _ = CloseHandle(job);
 
-        // 스레드는 파이프가 닫히면 자동 종료
         drop(pty);
 
         let _ = output_thread.join();
-        let _ = input_thread.join();
 
         process::exit(exit_code as i32);
     }

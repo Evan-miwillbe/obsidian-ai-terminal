@@ -1,7 +1,7 @@
-use std::io::{self, Read, Write};
-use std::sync::mpsc;
+use std::io::{self, Write};
 use std::thread;
 use windows::Win32::Foundation::HANDLE;
+use windows::Win32::System::Console::{HPCON, COORD, ResizePseudoConsole};
 use windows::Win32::Storage::FileSystem::{ReadFile, WriteFile};
 
 use crate::conpty::ConPty;
@@ -10,14 +10,16 @@ const RESIZE_PREFIX: &[u8] = b"\x1b]resize";
 const RESIZE_TERMINATOR: u8 = 0x07;
 
 /// ConPTY output → stdout 릴레이 (별도 스레드)
-pub fn relay_output(output_read: HANDLE) -> thread::JoinHandle<()> {
+pub fn relay_output(output_client: HANDLE) -> thread::JoinHandle<()> {
+    let raw = output_client.0 as isize;
     thread::spawn(move || {
+        let h = HANDLE(raw as *mut _);
         let mut buf = [0u8; 65536];
         let stdout = io::stdout();
         loop {
             let mut bytes_read: u32 = 0;
             let ok = unsafe {
-                ReadFile(output_read, Some(&mut buf), Some(&mut bytes_read), None)
+                ReadFile(h, Some(&mut buf), Some(&mut bytes_read), None)
             };
             if ok.is_err() || bytes_read == 0 {
                 break;
@@ -32,23 +34,27 @@ pub fn relay_output(output_read: HANDLE) -> thread::JoinHandle<()> {
 }
 
 /// stdin → ConPTY input 릴레이 + resize 시퀀스 파싱 (별도 스레드)
-pub fn relay_input(input_write: HANDLE, conpty: &ConPty) -> thread::JoinHandle<()> {
-    // resize 요청을 메인 스레드로 전달하기 위한 채널
-    // ConPty는 Send가 아닐 수 있으므로, resize는 콜백 방식 대신 직접 처리
-    let hpc = conpty.hpc;
+pub fn relay_input(input_client: HANDLE, conpty: &ConPty, stdin_handle: HANDLE) -> thread::JoinHandle<()> {
+    let write_raw = input_client.0 as isize;
+    let hpc_raw = conpty.hpc.0 as isize;
+    let stdin_raw = stdin_handle.0 as isize;
 
     thread::spawn(move || {
-        let stdin = io::stdin();
+        let write_h = HANDLE(write_raw as *mut _);
+        let hpc = HPCON(hpc_raw);
+        let stdin_h = HANDLE(stdin_raw as *mut _);
+
         let mut buf = [0u8; 65536];
         loop {
-            let mut handle = stdin.lock();
-            let n = match handle.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => n,
-                Err(_) => break,
+            let mut bytes_read: u32 = 0;
+            let ok = unsafe {
+                ReadFile(stdin_h, Some(&mut buf), Some(&mut bytes_read), None)
             };
-            drop(handle);
+            if ok.is_err() || bytes_read == 0 {
+                break;
+            }
 
+            let n = bytes_read as usize;
             let data = &buf[..n];
             let mut i = 0;
 
@@ -61,13 +67,9 @@ pub fn relay_input(input_write: HANDLE, conpty: &ConPty) -> thread::JoinHandle<(
                             let params: Vec<&str> = params_str.trim_start_matches(';').split(';').collect();
                             if params.len() == 2 {
                                 if let (Ok(cols), Ok(rows)) = (params[0].parse::<i16>(), params[1].parse::<i16>()) {
-                                    // ConPTY resize
                                     unsafe {
-                                        let size = windows::Win32::System::Console::COORD { X: cols, Y: rows };
-                                        let _ = windows::Win32::System::Console::ResizePseudoConsole(
-                                            windows::Win32::System::Console::HPCON(hpc.0),
-                                            size,
-                                        );
+                                        let size = COORD { X: cols, Y: rows };
+                                        let _ = ResizePseudoConsole(hpc, size);
                                     }
                                 }
                             }
@@ -85,10 +87,9 @@ pub fn relay_input(input_write: HANDLE, conpty: &ConPty) -> thread::JoinHandle<(
                 let end = next_resize.unwrap_or(data.len());
                 let chunk = &data[i..end];
 
-                // ConPTY input에 쓰기
                 let mut written: u32 = 0;
                 let ok = unsafe {
-                    WriteFile(input_write, Some(chunk), Some(&mut written), None)
+                    WriteFile(write_h, Some(chunk), Some(&mut written), None)
                 };
                 if ok.is_err() {
                     return;
