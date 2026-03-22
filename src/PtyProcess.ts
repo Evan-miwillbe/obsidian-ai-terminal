@@ -1,36 +1,47 @@
 import { spawn, ChildProcess } from "child_process";
 import { EventEmitter } from "events";
+import * as path from "path";
 
 export class PtyProcess extends EventEmitter {
   private process: ChildProcess | null = null;
   private _cols: number = 80;
   private _rows: number = 24;
+  private helperPath: string;
 
   constructor(
     private shell: string,
     private cwd: string,
+    private pluginDir: string,
     private env: Record<string, string> = {}
   ) {
     super();
+    this.helperPath = path.join(pluginDir, "pty-helper.py");
   }
 
   start(): void {
     const mergedEnv: Record<string, string> = {
-      ...process.env as Record<string, string>,
+      ...(process.env as Record<string, string>),
       TERM: "xterm-256color",
       COLORTERM: "truecolor",
       LANG: "en_US.UTF-8",
-      COLUMNS: String(this._cols),
-      LINES: String(this._rows),
       ...this.env,
     };
 
-    // macOS: script -q /dev/null <shell> 로 PTY 할당
-    this.process = spawn("script", ["-q", "/dev/null", this.shell], {
-      cwd: this.cwd,
-      env: mergedEnv,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    // Python3 pty 헬퍼로 진짜 PTY 할당
+    this.process = spawn(
+      "python3",
+      [
+        this.helperPath,
+        String(this._cols),
+        String(this._rows),
+        this.cwd,
+        this.shell,
+      ],
+      {
+        env: mergedEnv,
+        stdio: ["pipe", "pipe", "pipe"],
+      }
+    );
 
     this.process.stdout?.on("data", (data: Buffer) => {
       this.emit("data", data.toString("utf-8"));
@@ -48,9 +59,6 @@ export class PtyProcess extends EventEmitter {
     this.process.on("error", (err: Error) => {
       this.emit("error", err);
     });
-
-    // 초기 stty 설정으로 터미널 크기 지정
-    this.resize(this._cols, this._rows);
   }
 
   write(data: string): void {
@@ -62,10 +70,9 @@ export class PtyProcess extends EventEmitter {
   resize(cols: number, rows: number): void {
     this._cols = cols;
     this._rows = rows;
-    if (this.process?.pid) {
-      // script로 생성된 PTY의 크기를 stty로 변경
-      // 자식 프로세스의 tty에 직접 stty 명령 전달
-      this.write(`stty cols ${cols} rows ${rows} 2>/dev/null\n`);
+    if (this.process?.stdin?.writable) {
+      // 커스텀 이스케이프 시퀀스로 resize 신호 전달
+      this.process.stdin.write(`\x1b]resize;${cols};${rows}\x07`);
     }
   }
 

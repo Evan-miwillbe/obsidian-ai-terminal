@@ -1,10 +1,16 @@
-import { Plugin } from "obsidian";
+import { Plugin, normalizePath } from "obsidian";
 import { TerminalView, VIEW_TYPE_TERMINAL } from "./TerminalView";
 import { AITerminalSettings, AITerminalSettingTab, DEFAULT_SETTINGS } from "./settings";
 import type { Preset } from "./settings";
+import * as path from "path";
 
 export default class AITerminalPlugin extends Plugin {
   settings: AITerminalSettings = DEFAULT_SETTINGS;
+
+  private get pluginDir(): string {
+    const vaultPath = (this.app.vault.adapter as any).basePath as string;
+    return path.join(vaultPath, ".obsidian", "plugins", "obsidian-ai-terminal");
+  }
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -12,7 +18,7 @@ export default class AITerminalPlugin extends Plugin {
     // 터미널 뷰 등록
     this.registerView(VIEW_TYPE_TERMINAL, (leaf) => {
       const preset = (leaf as any)._aiTerminalPreset as Preset | null || null;
-      return new TerminalView(leaf, this.settings, preset);
+      return new TerminalView(leaf, this.settings, this.pluginDir, preset);
     });
 
     // 기본 터미널 열기 커맨드

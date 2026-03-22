@@ -13,10 +13,12 @@ export class TerminalView extends ItemView {
   private resizeObserver: ResizeObserver | null = null;
   private preset: Preset | null;
   private settings: AITerminalSettings;
+  private pluginDir: string;
 
-  constructor(leaf: WorkspaceLeaf, settings: AITerminalSettings, preset: Preset | null = null) {
+  constructor(leaf: WorkspaceLeaf, settings: AITerminalSettings, pluginDir: string, preset: Preset | null = null) {
     super(leaf);
     this.settings = settings;
+    this.pluginDir = pluginDir;
     this.preset = preset;
   }
 
@@ -106,7 +108,7 @@ export class TerminalView extends ItemView {
     // 프리셋이 있으면 프리셋 명령어로 실행, 없으면 기본 셸
     const shell = this.settings.defaultShell || "/bin/zsh";
 
-    this.pty = new PtyProcess(shell, cwd);
+    this.pty = new PtyProcess(shell, cwd, this.pluginDir);
 
     this.pty.on("data", (data: string) => {
       this.terminal?.write(data);
