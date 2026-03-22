@@ -16,8 +16,15 @@ export interface AITerminalSettings {
   presets: Preset[];
 }
 
+function getDefaultShell(): string {
+  if (process.platform === "win32") {
+    return "powershell.exe";
+  }
+  return process.env.SHELL || "/bin/zsh";
+}
+
 export const DEFAULT_SETTINGS: AITerminalSettings = {
-  defaultShell: "/bin/zsh",
+  defaultShell: getDefaultShell(),
   defaultCwd: "",
   fontSize: 14,
   fontFamily: "'MesloLGS NF', Menlo, Monaco, 'Courier New', monospace",
@@ -38,9 +45,13 @@ export class AITerminalSettingTab extends PluginSettingTab {
 
     containerEl.createEl("h2", { text: "AI Terminal Settings" });
 
+    const shellHint = process.platform === "win32"
+      ? "e.g. powershell.exe, cmd.exe, pwsh.exe, wsl.exe"
+      : "e.g. /bin/zsh, /bin/bash";
+
     new Setting(containerEl)
       .setName("Default shell")
-      .setDesc("Shell to use when opening a terminal")
+      .setDesc(`Shell to use when opening a terminal (${shellHint})`)
       .addText((text) =>
         text
           .setPlaceholder("/bin/zsh")

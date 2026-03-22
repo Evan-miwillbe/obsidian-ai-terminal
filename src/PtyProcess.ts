@@ -2,11 +2,12 @@ import { spawn, ChildProcess } from "child_process";
 import { EventEmitter } from "events";
 import * as path from "path";
 
+const isWindows = process.platform === "win32";
+
 export class PtyProcess extends EventEmitter {
   private process: ChildProcess | null = null;
   private _cols: number = 80;
   private _rows: number = 24;
-  private helperPath: string;
 
   constructor(
     private shell: string,
@@ -15,7 +16,6 @@ export class PtyProcess extends EventEmitter {
     private env: Record<string, string> = {}
   ) {
     super();
-    this.helperPath = path.join(pluginDir, "pty-helper.py");
   }
 
   start(): void {
@@ -23,25 +23,35 @@ export class PtyProcess extends EventEmitter {
       ...(process.env as Record<string, string>),
       TERM: "xterm-256color",
       COLORTERM: "truecolor",
-      LANG: "en_US.UTF-8",
       ...this.env,
     };
 
-    // Python3 pty 헬퍼로 진짜 PTY 할당
-    this.process = spawn(
-      "python3",
-      [
-        this.helperPath,
-        String(this._cols),
-        String(this._rows),
-        this.cwd,
-        this.shell,
-      ],
-      {
+    if (!isWindows) {
+      mergedEnv.LANG = "en_US.UTF-8";
+    }
+
+    const args = [
+      String(this._cols),
+      String(this._rows),
+      this.cwd,
+      this.shell,
+    ];
+
+    if (isWindows) {
+      // Windows: ConPTY 브릿지 바이너리
+      const bridgePath = path.join(this.pluginDir, "conpty-bridge.exe");
+      this.process = spawn(bridgePath, args, {
         env: mergedEnv,
         stdio: ["pipe", "pipe", "pipe"],
-      }
-    );
+      });
+    } else {
+      // macOS/Linux: Python3 PTY 헬퍼
+      const helperPath = path.join(this.pluginDir, "pty-helper.py");
+      this.process = spawn("python3", [helperPath, ...args], {
+        env: mergedEnv,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    }
 
     this.process.stdout?.on("data", (data: Buffer) => {
       this.emit("data", data.toString("utf-8"));
@@ -71,7 +81,6 @@ export class PtyProcess extends EventEmitter {
     this._cols = cols;
     this._rows = rows;
     if (this.process?.stdin?.writable) {
-      // 커스텀 이스케이프 시퀀스로 resize 신호 전달
       this.process.stdin.write(`\x1b]resize;${cols};${rows}\x07`);
     }
   }
@@ -89,7 +98,7 @@ export class PtyProcess extends EventEmitter {
       this.write("exit\n");
       setTimeout(() => {
         if (this.process && !this.process.killed) {
-          this.process.kill("SIGTERM");
+          this.process.kill();
         }
       }, 500);
     }
@@ -97,7 +106,7 @@ export class PtyProcess extends EventEmitter {
 
   destroy(): void {
     if (this.process) {
-      this.process.kill("SIGKILL");
+      this.process.kill();
       this.process = null;
     }
   }

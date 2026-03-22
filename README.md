@@ -2,9 +2,10 @@
 
 An Obsidian plugin that embeds a **fully functional terminal** inside Obsidian — designed for running AI CLI tools like **Claude Code** and **Gemini CLI** directly within your vault.
 
-> No native modules. No WebSocket. No external dependencies (besides Python 3, which ships with macOS).
+> No native Node.js modules. No WebSocket. Cross-platform (macOS + Windows).
 
 ![macOS](https://img.shields.io/badge/platform-macOS-blue)
+![Windows](https://img.shields.io/badge/platform-Windows-blue)
 ![Obsidian](https://img.shields.io/badge/Obsidian-1.0%2B-purple)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -14,14 +15,19 @@ Existing Obsidian terminal plugins either:
 - Depend on **node-pty** (native C++ module) — fragile across Electron versions
 - Only support simple command execution — no TUI app support
 
-This plugin uses **Python's built-in `pty` module** to allocate a real pseudo-terminal, enabling full TUI support (colors, cursor movement, interactive input) without any native module compilation.
+This plugin uses **platform-native PTY** allocation without any native Node.js modules:
+- **macOS/Linux**: Python 3 `pty` module (ships with the OS)
+- **Windows**: Rust ConPTY bridge binary (~400KB, bundled)
+
+Full TUI support — colors, cursor movement, interactive input — for apps like Claude Code.
 
 ## Features
 
 - **Full terminal emulation** — powered by [xterm.js](https://xtermjs.org/)
+- **Cross-platform** — macOS (Python PTY) + Windows (ConPTY)
 - **AI CLI presets** — one-click launch for Claude Code, Gemini CLI, or any CLI tool
 - **Vault-aware** — automatically sets working directory to your vault root
-- **Login shell** — loads your `.zprofile`/`.zshrc`, so nvm, homebrew, etc. just work
+- **Login shell** — loads your shell profile, so nvm, homebrew, etc. just work
 - **Resizable** — terminal auto-fits to panel size with proper PTY resize signals
 - **Customizable** — font size, font family, shell path, custom presets
 - **No native modules** — works across Obsidian updates without recompilation
@@ -29,35 +35,49 @@ This plugin uses **Python's built-in `pty` module** to allocate a real pseudo-te
 ## How It Works
 
 ```
-xterm.js (UI) ←→ stdin/stdout pipe ←→ pty-helper.py (PTY) ←→ shell/CLI
+                  macOS/Linux                          Windows
+xterm.js ←→ pipe ←→ pty-helper.py (PTY) ←→ shell    xterm.js ←→ pipe ←→ conpty-bridge.exe (ConPTY) ←→ shell
 ```
 
-The plugin spawns a lightweight Python 3 script (`pty-helper.py`) that:
-1. Creates a real PTY via `pty.openpty()`
-2. Forks and runs your shell (or AI CLI) inside the PTY
-3. Relays I/O between Obsidian (pipes) and the PTY (real terminal)
-
-This gives you a genuine terminal experience — including full TUI support for apps like Claude Code — without the pain of native Node.js modules.
+Both backends use the same protocol:
+- stdin/stdout pipes for I/O relay
+- Custom escape sequence `\x1b]resize;cols;rows\x07` for terminal resize
 
 ## Installation
 
-### Manual Installation
+### macOS / Linux
 
 1. Download the latest release (`main.js`, `manifest.json`, `styles.css`, `pty-helper.py`)
 2. Create folder: `<your-vault>/.obsidian/plugins/obsidian-ai-terminal/`
 3. Copy the 4 files into that folder
 4. Restart Obsidian → Settings → Community Plugins → Enable "AI Terminal"
 
+**Requirement**: Python 3 (ships with macOS; install via package manager on Linux)
+
+### Windows
+
+1. Download the latest release (`main.js`, `manifest.json`, `styles.css`, `conpty-bridge.exe`)
+2. Create folder: `<your-vault>\.obsidian\plugins\obsidian-ai-terminal\`
+3. Copy the 4 files into that folder
+4. Restart Obsidian → Settings → Community Plugins → Enable "AI Terminal"
+
+**Requirement**: Windows 10 version 1809 or later (for ConPTY support)
+
 ### From Source
 
 ```bash
-git clone https://github.com/theco/obsidian-ai-terminal.git
+git clone https://github.com/theco3-cyber/obsidian-ai-terminal.git
 cd obsidian-ai-terminal
 npm install
 npm run build
 ```
 
-Then copy `main.js`, `manifest.json`, `styles.css`, and `src/pty-helper.py` to your vault's plugin folder.
+For the Windows ConPTY bridge:
+```bash
+cd conpty-bridge
+cargo build --release
+# Output: target/release/conpty-bridge.exe
+```
 
 ## Usage
 
@@ -79,21 +99,15 @@ Go to **Settings → AI Terminal → Presets** to add your own:
 | Aider | `aider` |
 | Shell | *(empty = default shell)* |
 
-## Requirements
-
-- **macOS** (uses Python 3 `pty` module; Python 3 ships with macOS)
-- **Obsidian 1.0+** (Desktop only)
-- AI CLI tools installed separately (e.g., `npm install -g @anthropic-ai/claude-code`)
-
 ## Settings
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| Default shell | `/bin/zsh` | Shell to launch |
-| Working directory | Vault root | Override with custom path |
-| Font size | 14 | Terminal font size (10–24) |
-| Font family | MesloLGS NF, Menlo, ... | CSS font-family |
-| Presets | Shell, Claude Code, Gemini CLI | Customizable CLI presets |
+| Setting | macOS/Linux Default | Windows Default | Description |
+|---------|-------------------|-----------------|-------------|
+| Default shell | `$SHELL` or `/bin/zsh` | `powershell.exe` | Shell to launch |
+| Working directory | Vault root | Vault root | Override with custom path |
+| Font size | 14 | 14 | Terminal font size (10–24) |
+| Font family | MesloLGS NF, Menlo, ... | MesloLGS NF, Menlo, ... | CSS font-family |
+| Presets | Shell, Claude Code, Gemini CLI | Shell, Claude Code, Gemini CLI | Customizable CLI presets |
 
 ## Architecture
 
@@ -101,28 +115,51 @@ Go to **Settings → AI Terminal → Presets** to add your own:
 src/
 ├── main.ts           # Plugin entry point — commands, ribbon, settings tab
 ├── TerminalView.ts   # xterm.js terminal view (Obsidian ItemView)
-├── PtyProcess.ts     # Python PTY process manager
-├── pty-helper.py     # Python 3 PTY allocator + I/O relay
+├── PtyProcess.ts     # Platform-aware PTY process manager
+├── pty-helper.py     # macOS/Linux: Python 3 PTY allocator + I/O relay
 ├── presets.ts        # Default AI CLI presets
 └── settings.ts       # Plugin settings & UI
+
+conpty-bridge/        # Windows: Rust ConPTY bridge
+├── Cargo.toml
+└── src/
+    ├── main.rs       # Entry point — create ConPTY, spawn shell, relay I/O
+    ├── conpty.rs      # ConPTY API wrapper (CreatePseudoConsole, resize, Job Object)
+    └── pipe_relay.rs  # Threaded stdin/stdout relay + resize sequence parser
 ```
 
 ### Key design decisions
 
 | Decision | Rationale |
 |----------|-----------|
-| Python PTY over node-pty | No native module compilation; works across Electron versions |
-| Python PTY over `script` | `script` fails with piped stdio (`tcgetattr` error) |
-| Login shell (`-l`) | Loads user's PATH config (nvm, homebrew, etc.) |
-| Custom resize escape sequence | `\x1b]resize;cols;rows\x07` parsed by pty-helper for SIGWINCH |
+| Python PTY (macOS/Linux) | No native modules; `pty` module ships with the OS |
+| Rust ConPTY bridge (Windows) | Single static binary (~400KB); no Python/runtime dependency |
+| Same resize protocol | `\x1b]resize;cols;rows\x07` — platform-agnostic, parsed by both backends |
+| Login shell (`-l`) on macOS | Loads user's PATH config (nvm, homebrew, etc.) |
+| Job Object on Windows | Ensures child processes are killed when bridge exits |
 
 ## Roadmap
 
-- [ ] Linux support (Python PTY works on Linux too — just needs testing)
-- [ ] Windows support (ConPTY bridge binary)
+- [x] macOS support (Python PTY)
+- [x] Windows support (ConPTY bridge) — code complete, testing
+- [ ] Linux support (Python PTY — should work, needs testing)
 - [ ] Multiple terminal tabs
 - [ ] Session persistence across Obsidian restarts
 - [ ] Obsidian theme-aware terminal colors
+
+## Building the ConPTY Bridge (Windows)
+
+The ConPTY bridge must be compiled on Windows (or cross-compiled):
+
+```bash
+# On Windows:
+cd conpty-bridge
+cargo build --release
+# → target\release\conpty-bridge.exe (~400KB)
+
+# Copy to plugin folder:
+copy target\release\conpty-bridge.exe <vault>\.obsidian\plugins\obsidian-ai-terminal\
+```
 
 ## License
 
@@ -131,4 +168,5 @@ MIT
 ## Credits
 
 - [xterm.js](https://xtermjs.org/) — Terminal UI rendering
+- [windows-rs](https://github.com/microsoft/windows-rs) — Rust Windows API bindings
 - Built with [Claude Code](https://claude.ai/claude-code)
