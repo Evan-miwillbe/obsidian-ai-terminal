@@ -66,7 +66,7 @@ Both backends use the same protocol:
 ### From Source
 
 ```bash
-git clone https://github.com/theco3-cyber/obsidian-ai-terminal.git
+git clone https://github.com/Deok-ho/obsidian-ai-terminal.git
 cd obsidian-ai-terminal
 npm install
 npm run build
