@@ -52,7 +52,9 @@ Both backends use the same protocol:
 3. Copy the 4 files into that folder
 4. Restart Obsidian → Settings → Community Plugins → Enable "AI Terminal"
 
-**Requirement**: Python 3 (ships with macOS; install via package manager on Linux)
+**Requirements**:
+- Python 3 (ships with macOS; install via `sudo apt install python3` on Linux)
+- **Linux**: Obsidian **AppImage** recommended (Snap/Flatpak may sandbox `child_process`)
 
 ### Windows
 
@@ -141,8 +143,8 @@ conpty-bridge/        # Windows: Rust ConPTY bridge
 ## Roadmap
 
 - [x] macOS support (Python PTY)
-- [x] Windows support (ConPTY bridge) — code complete, testing
-- [ ] Linux support (Python PTY — should work, needs testing)
+- [x] Windows support (ConPTY bridge)
+- [x] Linux support (Python PTY + python3/python fallback) — WSL testing pending
 - [ ] Multiple terminal tabs
 - [ ] Session persistence across Obsidian restarts
 - [ ] Obsidian theme-aware terminal colors

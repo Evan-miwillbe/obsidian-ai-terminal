@@ -1,8 +1,20 @@
-import { spawn, ChildProcess } from "child_process";
+import { spawn, ChildProcess, execFileSync } from "child_process";
 import { EventEmitter } from "events";
 import * as path from "path";
 
 const isWindows = process.platform === "win32";
+const isLinux = process.platform === "linux";
+
+function findPython(): string {
+  if (isWindows) return "python3"; // Windows에서는 사용 안 함
+  // python3 먼저 시도, 없으면 python 폴백 (일부 Linux 배포판)
+  try {
+    execFileSync("python3", ["--version"], { stdio: "ignore" });
+    return "python3";
+  } catch {
+    return "python";
+  }
+}
 
 export class PtyProcess extends EventEmitter {
   private process: ChildProcess | null = null;
@@ -27,7 +39,10 @@ export class PtyProcess extends EventEmitter {
     };
 
     if (!isWindows) {
-      mergedEnv.LANG = "en_US.UTF-8";
+      // 기존 LANG이 있으면 유지, 없으면 UTF-8 설정 (일부 Linux 배포판에 en_US.UTF-8 미설치)
+      if (!mergedEnv.LANG) {
+        mergedEnv.LANG = "C.UTF-8";
+      }
     }
 
     const args = [
@@ -45,9 +60,10 @@ export class PtyProcess extends EventEmitter {
         stdio: ["pipe", "pipe", "pipe"],
       });
     } else {
-      // macOS/Linux: Python3 PTY 헬퍼
+      // macOS/Linux: Python PTY 헬퍼
       const helperPath = path.join(this.pluginDir, "pty-helper.py");
-      this.process = spawn("python3", [helperPath, ...args], {
+      const pythonCmd = findPython();
+      this.process = spawn(pythonCmd, [helperPath, ...args], {
         env: mergedEnv,
         stdio: ["pipe", "pipe", "pipe"],
       });
