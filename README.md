@@ -144,7 +144,7 @@ conpty-bridge/        # Windows: Rust ConPTY bridge
 
 - [x] macOS support (Python PTY)
 - [x] Windows support (ConPTY bridge)
-- [x] Linux support (Python PTY + python3/python fallback) — WSL testing pending
+- [x] Linux support (Python PTY + python3/python fallback) — WSL(Ubuntu 24.04) 환경 확인 완료, Obsidian 설치 후 플러그인 통합 테스트 재시도 예정
 - [ ] Multiple terminal tabs
 - [ ] Session persistence across Obsidian restarts
 - [ ] Obsidian theme-aware terminal colors
