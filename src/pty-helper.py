@@ -26,13 +26,23 @@ def main():
     if pid == 0:
         # 자식: slave PTY를 stdin/stdout/stderr로
         os.close(master_fd)
-        os.setsid()
-        fcntl.ioctl(slave_fd, termios.TIOCSCTTY, 0)
-        os.dup2(slave_fd, 0)
-        os.dup2(slave_fd, 1)
-        os.dup2(slave_fd, 2)
-        if slave_fd > 2:
-            os.close(slave_fd)
+        if hasattr(os, 'login_tty'):
+            # Python 3.12+: setsid + TIOCSCTTY + dup2 + close 한번에 처리
+            os.login_tty(slave_fd)
+        else:
+            os.setsid()
+            try:
+                fcntl.ioctl(slave_fd, termios.TIOCSCTTY, 0)
+            except OSError:
+                # WSL 등 일부 환경에서 TIOCSCTTY 실패 시 ttyname으로 fallback
+                slave_name = os.ttyname(slave_fd)
+                os.close(slave_fd)
+                slave_fd = os.open(slave_name, os.O_RDWR)
+            os.dup2(slave_fd, 0)
+            os.dup2(slave_fd, 1)
+            os.dup2(slave_fd, 2)
+            if slave_fd > 2:
+                os.close(slave_fd)
 
         env = os.environ.copy()
         env["TERM"] = "xterm-256color"
