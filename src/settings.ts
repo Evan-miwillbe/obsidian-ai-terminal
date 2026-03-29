@@ -14,6 +14,11 @@ export interface AITerminalSettings {
   fontSize: number;
   fontFamily: string;
   presets: Preset[];
+  vaultIndexEnabled: boolean;
+  vaultIndexPath: string;
+  schedulerEnabled: boolean;
+  schedulerPollMs: number;
+  dailyNotePath: string;
 }
 
 function getDefaultShell(): string {
@@ -29,6 +34,11 @@ export const DEFAULT_SETTINGS: AITerminalSettings = {
   fontSize: 14,
   fontFamily: "'MesloLGS NF', Menlo, Monaco, 'Courier New', monospace",
   presets: DEFAULT_PRESETS,
+  vaultIndexEnabled: false,
+  vaultIndexPath: ".obsidian/plugins/obsidian-ai-terminal/vault-index.json",
+  schedulerEnabled: false,
+  schedulerPollMs: 60_000,
+  dailyNotePath: "00_Area/01_시간축/일일_노트",
 };
 
 export class AITerminalSettingTab extends PluginSettingTab {
@@ -97,6 +107,76 @@ export class AITerminalSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.fontFamily)
           .onChange(async (value) => {
             this.plugin.settings.fontFamily = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    // Vault Index 섹션
+    containerEl.createEl("h3", { text: "Vault Index" });
+
+    new Setting(containerEl)
+      .setName("Enable vault index")
+      .setDesc("Automatically dump vault metadata (backlinks, tags, frontmatter) to a JSON file for AI tools")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.vaultIndexEnabled)
+          .onChange(async (value) => {
+            this.plugin.settings.vaultIndexEnabled = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Vault index path")
+      .setDesc("Output path for vault-index.json (relative to vault root)")
+      .addText((text) =>
+        text
+          .setPlaceholder(".obsidian/plugins/obsidian-ai-terminal/vault-index.json")
+          .setValue(this.plugin.settings.vaultIndexPath)
+          .onChange(async (value) => {
+            this.plugin.settings.vaultIndexPath = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    // Scheduler 섹션
+    containerEl.createEl("h3", { text: "Scheduler" });
+
+    new Setting(containerEl)
+      .setName("Enable scheduler")
+      .setDesc("Run scheduled tasks via claude -p headless mode (requires restart)")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.schedulerEnabled)
+          .onChange(async (value) => {
+            this.plugin.settings.schedulerEnabled = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Poll interval (seconds)")
+      .setDesc("How often to check for due schedules")
+      .addSlider((slider) =>
+        slider
+          .setLimits(30, 300, 30)
+          .setValue(this.plugin.settings.schedulerPollMs / 1000)
+          .setDynamicTooltip()
+          .onChange(async (value) => {
+            this.plugin.settings.schedulerPollMs = value * 1000;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Daily note path")
+      .setDesc("Folder for daily notes (relative to vault root)")
+      .addText((text) =>
+        text
+          .setPlaceholder("00_Area/01_시간축/일일_노트")
+          .setValue(this.plugin.settings.dailyNotePath)
+          .onChange(async (value) => {
+            this.plugin.settings.dailyNotePath = value;
             await this.plugin.saveSettings();
           })
       );
