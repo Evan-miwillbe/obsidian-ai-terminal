@@ -1,6 +1,7 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type AITerminalPlugin from "./main";
 import { DEFAULT_PRESETS } from "./presets";
+import { DEFAULT_RULE_SYNC_SETTINGS, type RuleSyncSettings } from "./ruleSync";
 
 export interface Preset {
   name: string;
@@ -8,7 +9,7 @@ export interface Preset {
   icon: string;
 }
 
-export interface AITerminalSettings {
+export interface AITerminalSettings extends RuleSyncSettings {
   defaultShell: string;
   defaultCwd: string;
   fontSize: number;
@@ -39,6 +40,7 @@ export const DEFAULT_SETTINGS: AITerminalSettings = {
   schedulerEnabled: false,
   schedulerPollMs: 60_000,
   dailyNotePath: "00_Area/01_시간축/일일_노트",
+  ...DEFAULT_RULE_SYNC_SETTINGS,
 };
 
 export class AITerminalSettingTab extends PluginSettingTab {
@@ -177,6 +179,159 @@ export class AITerminalSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.dailyNotePath)
           .onChange(async (value) => {
             this.plugin.settings.dailyNotePath = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    // Rule Sync 섹션
+    containerEl.createEl("h3", { text: "Rule Sync (Harness)" });
+
+    new Setting(containerEl)
+      .setName("Enable rule sync")
+      .setDesc("Watch harness atoms and auto-deploy to ~/.claude/rules/, ~/.gemini.md")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.ruleSyncEnabled)
+          .onChange(async (value) => {
+            this.plugin.settings.ruleSyncEnabled = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Atoms path")
+      .setDesc("Vault-relative path to rule atoms")
+      .addText((text) =>
+        text
+          .setPlaceholder("0_harness/factory/atoms/rules")
+          .setValue(this.plugin.settings.ruleSyncAtomsPath)
+          .onChange(async (value) => {
+            this.plugin.settings.ruleSyncAtomsPath = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    // Profiles path, Global policy index path:
+    // 1차에서는 PROFILE_MATRIX 하드코딩 사용. output 생성에 반영하지 않으므로 UI 미노출.
+    // 2차에서 동적 profile 읽기 구현 시 UI 추가한다.
+    // settings 타입에는 유지하여 2차 전환 시 호환성 보장.
+
+    new Setting(containerEl)
+      .setName("Local sync log path")
+      .setDesc("JSONL local log (vault-relative)")
+      .addText((text) =>
+        text
+          .setPlaceholder(".obsidian/plugins/obsidian-ai-terminal/rule-sync-log.jsonl")
+          .setValue(this.plugin.settings.ruleSyncLogPath)
+          .onChange(async (value) => {
+            this.plugin.settings.ruleSyncLogPath = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Shared report outbox")
+      .setDesc("JSONL shared outbox for Harness-factory (vault-relative)")
+      .addText((text) =>
+        text
+          .setPlaceholder("0_harness/factory/data/rule_reports/pc2.jsonl")
+          .setValue(this.plugin.settings.ruleReportOutboxPath)
+          .onChange(async (value) => {
+            this.plugin.settings.ruleReportOutboxPath = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Debounce (ms)")
+      .setDesc("Delay before syncing after file change")
+      .addSlider((slider) =>
+        slider
+          .setLimits(1000, 30000, 1000)
+          .setValue(this.plugin.settings.ruleSyncDebounceMs)
+          .setDynamicTooltip()
+          .onChange(async (value) => {
+            this.plugin.settings.ruleSyncDebounceMs = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Claude global")
+      .setDesc("Sync ~/.claude/CLAUDE.md")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.ruleSyncTargets.claudeGlobal)
+          .onChange(async (value) => {
+            this.plugin.settings.ruleSyncTargets.claudeGlobal = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Claude profiles")
+      .setDesc("Sync ~/.claude/rules/{profile}.md")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.ruleSyncTargets.claudeProfiles)
+          .onChange(async (value) => {
+            this.plugin.settings.ruleSyncTargets.claudeProfiles = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Gemini global")
+      .setDesc("Sync ~/.gemini.md")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.ruleSyncTargets.geminiGlobal)
+          .onChange(async (value) => {
+            this.plugin.settings.ruleSyncTargets.geminiGlobal = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    // Local Rule Watch 섹션
+    containerEl.createEl("h3", { text: "Local Rule Watch" });
+
+    new Setting(containerEl)
+      .setName("Enable local rule watch")
+      .setDesc("Detect changes to local LLM rule/prompt/config files and report to outbox")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.localRuleWatchEnabled)
+          .onChange(async (value) => {
+            this.plugin.settings.localRuleWatchEnabled = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Watch paths")
+      .setDesc("Absolute paths to watch (one per line, ~ allowed)")
+      .addTextArea((text) =>
+        text
+          .setPlaceholder("~/.claude/rules\n~/.gemini.md")
+          .setValue(this.plugin.settings.localRuleWatchPaths.join("\n"))
+          .onChange(async (value) => {
+            this.plugin.settings.localRuleWatchPaths = value
+              .split("\n")
+              .map((l) => l.trim())
+              .filter((l) => l.length > 0);
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Local rule report outbox")
+      .setDesc("JSONL outbox for local rule change events (vault-relative)")
+      .addText((text) =>
+        text
+          .setPlaceholder("0_harness/factory/data/rule_reports/pc2.jsonl")
+          .setValue(this.plugin.settings.localRuleReportOutboxPath)
+          .onChange(async (value) => {
+            this.plugin.settings.localRuleReportOutboxPath = value;
             await this.plugin.saveSettings();
           })
       );
