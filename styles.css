@@ -94,3 +94,126 @@
 .ai-terminal-xterm .xterm-viewport::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* === Schema Map View === */
+
+.schema-map-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 8px 12px;
+  overflow-y: auto;
+}
+
+.schema-map-container h4 {
+  margin: 12px 0 6px;
+  font-size: 0.95em;
+  color: var(--text-muted);
+}
+
+.schema-map-toolbar {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 8px;
+}
+
+.schema-map-btn {
+  cursor: pointer;
+  padding: 4px 10px;
+  font-size: 0.85em;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+}
+
+.schema-map-btn:hover {
+  background: var(--background-modifier-hover);
+}
+
+.schema-map-empty {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 0.9em;
+}
+
+/* Schema Map Graph */
+.schema-map-graph {
+  flex: 1;
+  overflow: auto;
+  padding: 4px 0;
+}
+
+.schema-map-project-wrapper {
+  margin-bottom: 16px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.schema-map-svg {
+  display: block;
+}
+
+.schema-map-empty-msg {
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 20px;
+  text-align: center;
+}
+
+/* Deploy Modal */
+.deploy-modal-info {
+  background: var(--background-secondary);
+  padding: 6px 10px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+}
+
+.deploy-modal-info p {
+  margin: 2px 0;
+  font-size: 0.9em;
+}
+
+.deploy-modal-field {
+  margin: 10px 0;
+}
+
+.deploy-modal-field > label {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 500;
+  font-size: 0.9em;
+}
+
+.deploy-modal-input {
+  width: 100%;
+  padding: 6px 8px;
+}
+
+.deploy-modal-target {
+  display: block;
+  padding: 4px 8px;
+  background: var(--background-secondary);
+  border-radius: 3px;
+  font-size: 0.85em;
+  word-break: break-all;
+  margin-top: 4px;
+}
+
+.deploy-modal-checkbox-row,
+.deploy-modal-radio-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.deploy-modal-checkbox,
+.deploy-modal-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 12px;
+  cursor: pointer;
+  font-size: 0.9em;
+}

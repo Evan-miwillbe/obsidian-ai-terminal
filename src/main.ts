@@ -1,16 +1,20 @@
 import { Plugin, Notice, TFile, debounce } from "obsidian";
 import { TerminalView, VIEW_TYPE_TERMINAL } from "./TerminalView";
+import { SchemaMapView, VIEW_TYPE_SCHEMA_MAP } from "./SchemaMapView";
 import { AITerminalSettings, AITerminalSettingTab, DEFAULT_SETTINGS } from "./settings";
 import type { Preset } from "./settings";
 import { dumpVaultIndex } from "./vaultIndexer";
 import { Scheduler } from "./scheduler";
 import { RuleSync } from "./ruleSync";
+import { DeployRegistryManager } from "./deployRegistry";
+import { writeSyncScript } from "./contextSync";
 import * as path from "path";
 
 export default class AITerminalPlugin extends Plugin {
   settings: AITerminalSettings = DEFAULT_SETTINGS;
   scheduler: Scheduler | null = null;
   ruleSync: RuleSync | null = null;
+  deployRegistry: DeployRegistryManager | null = null;
 
   private get pluginDir(): string {
     const vaultPath = (this.app.vault.adapter as any).basePath as string;
@@ -59,6 +63,9 @@ export default class AITerminalPlugin extends Plugin {
 
     // Rule Sync
     this.setupRuleSync();
+
+    // Schema Map
+    this.setupSchemaMap();
 
     // 스케줄러
     this.setupScheduler();
@@ -138,6 +145,24 @@ export default class AITerminalPlugin extends Plugin {
       },
     });
 
+    // Context Sync 커맨드
+    this.addCommand({
+      id: "generate-sync-script",
+      name: "Generate context sync script",
+      callback: async () => {
+        if (!this.settings.contextSyncEnabled) {
+          new Notice("Context Sync is disabled — enable in settings first");
+          return;
+        }
+        const scriptPath = await writeSyncScript(
+          this.app,
+          this.settings.hostName,
+          this.settings.contextSources,
+        );
+        new Notice(`sync-context.sh generated:\n${scriptPath}`, 8_000);
+      },
+    });
+
     this.addCommand({
       id: "sync-gemini-rules",
       name: "Sync Gemini rules",
@@ -183,6 +208,42 @@ export default class AITerminalPlugin extends Plugin {
     this.scheduler?.stop();
     this.ruleSync?.stopLocalRuleWatch();
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_TERMINAL);
+    this.app.workspace.detachLeavesOfType(VIEW_TYPE_SCHEMA_MAP);
+  }
+
+  private setupSchemaMap(): void {
+    if (!this.settings.schemaMapEnabled) return;
+
+    this.deployRegistry = new DeployRegistryManager(
+      this.app,
+      this.settings.deployRegistryPath,
+    );
+
+    this.registerView(VIEW_TYPE_SCHEMA_MAP, (leaf) => {
+      return new SchemaMapView(leaf, this.settings, this.deployRegistry!);
+    });
+
+    this.addCommand({
+      id: "open-schema-map",
+      name: "Open Schema Map",
+      callback: () => this.openSchemaMap(),
+    });
+
+    this.addRibbonIcon("map", "Open Schema Map", () => {
+      this.openSchemaMap();
+    });
+  }
+
+  async openSchemaMap(): Promise<void> {
+    const leaf = this.app.workspace.getRightLeaf(false);
+    if (!leaf) return;
+
+    await leaf.setViewState({
+      type: VIEW_TYPE_SCHEMA_MAP,
+      active: true,
+    });
+
+    this.app.workspace.revealLeaf(leaf);
   }
 
   private setupRuleSync(): void {

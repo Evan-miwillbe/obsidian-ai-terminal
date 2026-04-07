@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf } from "obsidian";
+import { ItemView, Scope, WorkspaceLeaf } from "obsidian";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { PtyProcess } from "./PtyProcess";
@@ -14,6 +14,9 @@ export class TerminalView extends ItemView {
   private preset: Preset | null;
   private settings: AITerminalSettings;
   private pluginDir: string;
+  private keymapScope = new Scope();
+  private keymapScopeActive = false;
+  private pendingTimers: ReturnType<typeof setTimeout>[] = [];
 
   constructor(leaf: WorkspaceLeaf, settings: AITerminalSettings, pluginDir: string, preset: Preset | null = null) {
     super(leaf);
@@ -80,11 +83,55 @@ export class TerminalView extends ItemView {
     const terminalEl = container.createDiv({ cls: "ai-terminal-xterm" });
     this.terminal.open(terminalEl);
 
+    // Ctrl 조합 핸들러: 터미널이 Ctrl 키를 직접 처리
+    this.terminal.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+      if (e.ctrlKey && e.type === "keydown") {
+        const key = e.key.toLowerCase();
+
+        // Ctrl+C: 선택 텍스트 있으면 복사, 없으면 SIGINT
+        if (key === "c" && this.terminal?.hasSelection()) {
+          navigator.clipboard.writeText(this.terminal.getSelection()).catch(() => {});
+          this.terminal.clearSelection();
+          return false;
+        }
+
+        // Ctrl+V: 클립보드 붙여넣기
+        if (key === "v") {
+          navigator.clipboard.readText().then((text) => {
+            this.pty?.write(text);
+          }).catch(() => {});
+          return false;
+        }
+
+        // 나머지 Ctrl 조합(C/D/Z/L/A/R/U/W/K 등)은 xterm이 처리
+        return true;
+      }
+      return true;
+    });
+
+    // Obsidian 핫키 차단: 같은 Scope 인스턴스로 push/pop
+    this.registerDomEvent(terminalEl, "focusin", (e: FocusEvent) => {
+      // 터미널 내부 포커스 이동은 무시 (버블링 방지)
+      if (e.relatedTarget instanceof Node && terminalEl.contains(e.relatedTarget)) return;
+      if (!this.keymapScopeActive) {
+        this.app.keymap.pushScope(this.keymapScope);
+        this.keymapScopeActive = true;
+      }
+    });
+    this.registerDomEvent(terminalEl, "focusout", (e: FocusEvent) => {
+      // 터미널 내부 포커스 이동은 무시
+      if (e.relatedTarget instanceof Node && terminalEl.contains(e.relatedTarget)) return;
+      if (this.keymapScopeActive) {
+        this.app.keymap.popScope(this.keymapScope);
+        this.keymapScopeActive = false;
+      }
+    });
+
     // 초기 fit
-    setTimeout(() => {
+    this.pendingTimers.push(setTimeout(() => {
       this.fitAddon?.fit();
       this.startPty();
-    }, 100);
+    }, 100));
 
     // 리사이즈 감지
     this.resizeObserver = new ResizeObserver(() => {
@@ -131,13 +178,21 @@ export class TerminalView extends ItemView {
 
     // 프리셋 명령어 자동 실행
     if (this.preset?.command) {
-      setTimeout(() => {
+      this.pendingTimers.push(setTimeout(() => {
         this.pty?.write(this.preset!.command + "\n");
-      }, 300);
+      }, 300));
     }
   }
 
   async onClose(): Promise<void> {
+    // 대기 중인 타이머 정리
+    for (const t of this.pendingTimers) clearTimeout(t);
+    this.pendingTimers = [];
+    // 포커스 상태에서 닫힐 경우 scope 정리
+    if (this.keymapScopeActive) {
+      this.app.keymap.popScope(this.keymapScope);
+      this.keymapScopeActive = false;
+    }
     this.resizeObserver?.disconnect();
     this.pty?.kill();
     this.terminal?.dispose();

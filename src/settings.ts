@@ -2,6 +2,12 @@ import { App, PluginSettingTab, Setting } from "obsidian";
 import type AITerminalPlugin from "./main";
 import { DEFAULT_PRESETS } from "./presets";
 import { DEFAULT_RULE_SYNC_SETTINGS, type RuleSyncSettings } from "./ruleSync";
+import {
+  type ContextSource,
+  DEFAULT_CONTEXT_SOURCES,
+  getDefaultHostName,
+  writeSyncScript,
+} from "./contextSync";
 
 export interface Preset {
   name: string;
@@ -20,6 +26,13 @@ export interface AITerminalSettings extends RuleSyncSettings {
   schedulerEnabled: boolean;
   schedulerPollMs: number;
   dailyNotePath: string;
+  // Context Sync
+  hostName: string;
+  contextSources: ContextSource[];
+  contextSyncEnabled: boolean;
+  // Schema Map
+  schemaMapEnabled: boolean;
+  deployRegistryPath: string;
 }
 
 function getDefaultShell(): string {
@@ -40,6 +53,11 @@ export const DEFAULT_SETTINGS: AITerminalSettings = {
   schedulerEnabled: false,
   schedulerPollMs: 60_000,
   dailyNotePath: "00_Area/01_시간축/일일_노트",
+  hostName: getDefaultHostName(),
+  contextSources: DEFAULT_CONTEXT_SOURCES.map((s) => ({ ...s })),
+  contextSyncEnabled: false,
+  schemaMapEnabled: false,
+  deployRegistryPath: "00_시스템/deploy-registry.json",
   ...DEFAULT_RULE_SYNC_SETTINGS,
 };
 
@@ -332,6 +350,138 @@ export class AITerminalSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.localRuleReportOutboxPath)
           .onChange(async (value) => {
             this.plugin.settings.localRuleReportOutboxPath = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    // Context Sync 섹션
+    containerEl.createEl("h3", { text: "Context Sync" });
+
+    new Setting(containerEl)
+      .setName("Enable context sync")
+      .setDesc("LLM 컨텍스트를 볼트에 백업하는 sync 스크립트 생성")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.contextSyncEnabled)
+          .onChange(async (value) => {
+            this.plugin.settings.contextSyncEnabled = value;
+            await this.plugin.saveSettings();
+            this.display();
+          })
+      );
+
+    if (this.plugin.settings.contextSyncEnabled) {
+      new Setting(containerEl)
+        .setName("Host name")
+        .setDesc("이 PC의 식별자. 볼트 내 _context/{host}/ 폴더명으로 사용")
+        .addText((text) =>
+          text
+            .setPlaceholder(getDefaultHostName())
+            .setValue(this.plugin.settings.hostName)
+            .onChange(async (value) => {
+              this.plugin.settings.hostName = value || getDefaultHostName();
+              await this.plugin.saveSettings();
+            })
+        );
+
+      // LLM 컨텍스트 소스 목록
+      containerEl.createEl("h4", { text: "LLM Context Sources" });
+
+      this.plugin.settings.contextSources.forEach((source, index) => {
+        const s = new Setting(containerEl)
+          .setName(source.agent)
+          .setDesc(source.localPath || "(path not set)")
+          .addText((text) =>
+            text
+              .setPlaceholder("Agent name")
+              .setValue(source.agent)
+              .onChange(async (value) => {
+                this.plugin.settings.contextSources[index].agent = value;
+                await this.plugin.saveSettings();
+              })
+          )
+          .addText((text) =>
+            text
+              .setPlaceholder("~/.claude")
+              .setValue(source.localPath)
+              .onChange(async (value) => {
+                this.plugin.settings.contextSources[index].localPath = value;
+                await this.plugin.saveSettings();
+              })
+          )
+          .addToggle((toggle) =>
+            toggle
+              .setValue(source.enabled)
+              .onChange(async (value) => {
+                this.plugin.settings.contextSources[index].enabled = value;
+                await this.plugin.saveSettings();
+              })
+          );
+
+        s.addExtraButton((btn) =>
+          btn.setIcon("trash").setTooltip("Remove source").onClick(async () => {
+            this.plugin.settings.contextSources.splice(index, 1);
+            await this.plugin.saveSettings();
+            this.display();
+          })
+        );
+      });
+
+      new Setting(containerEl).addButton((btn) =>
+        btn.setButtonText("Add LLM source").onClick(async () => {
+          this.plugin.settings.contextSources.push({
+            agent: "",
+            localPath: "",
+            enabled: true,
+          });
+          await this.plugin.saveSettings();
+          this.display();
+        })
+      );
+
+      // 스크립트 생성 버튼
+      new Setting(containerEl)
+        .setName("Generate sync script")
+        .setDesc("sync-context.sh를 생성합니다. 터미널에서 bash sync-context.sh로 실행")
+        .addButton((btn) =>
+          btn.setButtonText("Generate").onClick(async () => {
+            const scriptPath = await writeSyncScript(
+              this.app,
+              this.plugin.settings.hostName,
+              this.plugin.settings.contextSources,
+            );
+            new (await import("obsidian")).Notice(
+              `Script generated: ${scriptPath}`,
+              8_000,
+            );
+          })
+        );
+    }
+
+    // Schema Map 섹션
+    containerEl.createEl("h3", { text: "Schema Map" });
+
+    new Setting(containerEl)
+      .setName("Enable Schema Map")
+      .setDesc("Enable the Schema Map view for deployment status tracking (requires restart)")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.schemaMapEnabled)
+          .onChange(async (value) => {
+            this.plugin.settings.schemaMapEnabled = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Deploy registry path")
+      .setDesc("Vault-relative path for deploy-registry.json (syncs across PCs)")
+      .addText((text) =>
+        text
+          .setPlaceholder("00_시스템/deploy-registry.json")
+          .setValue(this.plugin.settings.deployRegistryPath)
+          .onChange(async (value) => {
+            this.plugin.settings.deployRegistryPath = value;
             await this.plugin.saveSettings();
           })
       );
