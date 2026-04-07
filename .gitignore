@@ -1,3 +1,4 @@
 node_modules/
 main.js
 conpty-bridge/target/
+docs/obsidian_symlink
