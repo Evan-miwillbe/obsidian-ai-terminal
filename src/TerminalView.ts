@@ -95,8 +95,9 @@ export class TerminalView extends ItemView {
           return false;
         }
 
-        // Ctrl+V: 클립보드 붙여넣기
+        // Ctrl+V: 클립보드 붙여넣기 (브라우저 기본 paste 차단 + 수동 1회)
         if (key === "v") {
+          e.preventDefault();
           navigator.clipboard.readText().then((text) => {
             this.pty?.write(text);
           }).catch(() => {});
