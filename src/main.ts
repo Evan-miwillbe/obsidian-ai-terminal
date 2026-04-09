@@ -8,6 +8,14 @@ import { Scheduler } from "./scheduler";
 import { RuleSync } from "./ruleSync";
 import { DeployRegistryManager } from "./deployRegistry";
 import { writeSyncScript } from "./contextSync";
+import { OtModal } from "./otCommand";
+import {
+  searchVault,
+  queryBacklinks,
+  queryLinks,
+  formatQueryResult,
+  NoteSuggestModal,
+} from "./vaultQuery";
 import * as path from "path";
 
 export default class AITerminalPlugin extends Plugin {
@@ -163,6 +171,82 @@ export default class AITerminalPlugin extends Plugin {
       },
     });
 
+    // ── 볼트 쿼리 커맨드 ──
+
+    this.addCommand({
+      id: "vault-search",
+      name: "Search vault (/search)",
+      callback: () => {
+        const input = window.prompt("검색어 (tag:태그 또는 키워드):");
+        if (!input) return;
+        const result = searchVault(this.app, input.trim());
+        const output = formatQueryResult(result);
+        if (!this.writeToActiveTerminal(output)) {
+          new Notice(
+            result.results.length > 0
+              ? result.results.map((r) => r.name).join("\n")
+              : "검색 결과 없음",
+            10_000,
+          );
+        }
+      },
+    });
+
+    this.addCommand({
+      id: "vault-backlinks",
+      name: "Show backlinks (/backlinks)",
+      callback: () => {
+        new NoteSuggestModal(this.app, (file) => {
+          const result = queryBacklinks(this.app, file.basename);
+          const output = formatQueryResult(result);
+          if (!this.writeToActiveTerminal(output)) {
+            new Notice(
+              result.results.length > 0
+                ? `Backlinks: ${result.results.map((r) => r.name).join(", ")}`
+                : "백링크 없음",
+              10_000,
+            );
+          }
+        }).open();
+      },
+    });
+
+    this.addCommand({
+      id: "vault-links",
+      name: "Show outgoing links (/links)",
+      callback: () => {
+        new NoteSuggestModal(this.app, (file) => {
+          const result = queryLinks(this.app, file.basename);
+          const output = formatQueryResult(result);
+          if (!this.writeToActiveTerminal(output)) {
+            new Notice(
+              result.results.length > 0
+                ? `Links: ${result.results.map((r) => r.name).join(", ")}`
+                : "링크 없음",
+              10_000,
+            );
+          }
+        }).open();
+      },
+    });
+
+    // /ot 커맨드 — 자연어 스케줄 등록
+    this.addCommand({
+      id: "ot-schedule",
+      name: "Register schedule with natural language (/ot)",
+      callback: () => {
+        if (!this.scheduler) {
+          // scheduler가 비활성이면 임시 생성
+          this.scheduler = new Scheduler(
+            this.app,
+            this.pluginDir,
+            this.settings.dailyNotePath,
+          );
+        }
+        new OtModal(this.app, this.scheduler).open();
+      },
+    });
+
     this.addCommand({
       id: "sync-gemini-rules",
       name: "Sync Gemini rules",
@@ -202,6 +286,15 @@ export default class AITerminalPlugin extends Plugin {
     });
 
     this.app.workspace.revealLeaf(leaf);
+  }
+
+  /** 활성 터미널 뷰의 xterm에 텍스트 출력 */
+  private writeToActiveTerminal(text: string): boolean {
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_TERMINAL);
+    if (leaves.length === 0) return false;
+    const view = leaves[0].view as TerminalView;
+    view.writeOutput(text);
+    return true;
   }
 
   onunload(): void {
@@ -283,6 +376,7 @@ export default class AITerminalPlugin extends Plugin {
       this.app,
       this.pluginDir,
       this.settings.dailyNotePath,
+      this.settings.hostName,
     );
     this.scheduler.start(this.settings.schedulerPollMs);
   }

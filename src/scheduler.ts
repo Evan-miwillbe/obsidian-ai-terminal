@@ -1,8 +1,15 @@
 import { App, Notice } from "obsidian";
 import { spawn } from "child_process";
 import * as path from "path";
+import { HubGenerator, type HubDepth } from "./hubGenerator";
 
 // ── 스케줄 테이블 스키마 ──
+
+export type ScheduleAction =
+  | "claude-prompt"
+  | "hub-generate"
+  | "weekly-summary"
+  | "monthly-summary";
 
 export interface ScheduleEntry {
   id: string;
@@ -13,6 +20,10 @@ export interface ScheduleEntry {
   lastRun: string | null; // ISO 8601
   createdAt: string;
   // 프롬프트는 schedules/{id}.md 파일에 별도 저장
+  // ── 확장 필드 ──
+  source?: "cli" | "mcp" | "ot";
+  action?: ScheduleAction;
+  actionInput?: Record<string, any>;
 }
 
 export interface ScheduleTable {
@@ -67,12 +78,16 @@ export class Scheduler {
   private table: ScheduleTable = EMPTY_TABLE;
   private intervalId: number | null = null;
   private running = new Set<string>(); // 중복 실행 방지
+  hostName: string;
 
   constructor(
     private app: App,
     private pluginDir: string,
     private dailyNotePath: string, // e.g. "00_Area/01_시간축/일일_노트"
-  ) {}
+    hostName?: string,
+  ) {
+    this.hostName = hostName || (typeof require !== "undefined" ? require("os").hostname() : "unknown");
+  }
 
   get schedulesPath(): string {
     return path.join(this.pluginDir, "schedules.json");
@@ -129,6 +144,49 @@ export class Scheduler {
     }
   }
 
+  // ── CRUD ──
+
+  async addEntry(entry: ScheduleEntry, promptContent?: string): Promise<void> {
+    await this.load();
+    // 동일 id 덮어쓰기
+    const idx = this.table.schedules.findIndex((e) => e.id === entry.id);
+    if (idx >= 0) {
+      this.table.schedules[idx] = entry;
+    } else {
+      this.table.schedules.push(entry);
+    }
+    await this.save();
+
+    // 프롬프트 파일 저장 (claude-prompt 액션일 때)
+    if (promptContent) {
+      await this.ensureSchedulesDir();
+      const promptPath = this.relPath(`schedules/${entry.id}.md`);
+      await this.app.vault.adapter.write(promptPath, promptContent);
+    }
+  }
+
+  async removeEntry(idOrName: string): Promise<boolean> {
+    await this.load();
+    const idx = this.table.schedules.findIndex(
+      (e) => e.id === idOrName || e.name === idOrName,
+    );
+    if (idx < 0) return false;
+
+    const entry = this.table.schedules[idx];
+    this.table.schedules.splice(idx, 1);
+    await this.save();
+
+    // 프롬프트 파일도 삭제 시도
+    try {
+      const promptPath = this.relPath(`schedules/${entry.id}.md`);
+      if (await this.app.vault.adapter.exists(promptPath)) {
+        await this.app.vault.adapter.remove(promptPath);
+      }
+    } catch { /* ignore */ }
+
+    return true;
+  }
+
   // ── Lifecycle ──
 
   start(pollMs: number): void {
@@ -182,8 +240,48 @@ export class Scheduler {
     this.running.add(entry.id);
 
     try {
-      const prompt = await this.loadPrompt(entry.id);
-      const result = await this.runClaude(prompt);
+      let result: string;
+
+      switch (entry.action) {
+        case "hub-generate": {
+          const project = entry.actionInput?.project as string;
+          const depth = (entry.actionInput?.depth as HubDepth) || "daily";
+          if (!project) {
+            result = `[hub-generate] actionInput.project가 필요합니다`;
+            break;
+          }
+          const hubGen = new HubGenerator(this.app, this.hostName);
+          result = await hubGen.generate({ project, depth });
+          break;
+        }
+        case "weekly-summary": {
+          const project = entry.actionInput?.project as string;
+          if (!project) {
+            result = `[weekly-summary] actionInput.project가 필요합니다`;
+            break;
+          }
+          const hubGen = new HubGenerator(this.app, this.hostName);
+          result = await hubGen.generateWeeklySummary(project);
+          break;
+        }
+        case "monthly-summary": {
+          const project = entry.actionInput?.project as string;
+          if (!project) {
+            result = `[monthly-summary] actionInput.project가 필요합니다`;
+            break;
+          }
+          const hubGen = new HubGenerator(this.app, this.hostName);
+          result = await hubGen.generateMonthlySummary(project);
+          break;
+        }
+        case "claude-prompt":
+        default: {
+          // 기존 동작: schedules/{id}.md 프롬프트 로드 → claude -p
+          const prompt = await this.loadPrompt(entry.id);
+          result = await this.runClaude(prompt);
+          break;
+        }
+      }
 
       // lastRun 갱신
       entry.lastRun = ts.toISOString();

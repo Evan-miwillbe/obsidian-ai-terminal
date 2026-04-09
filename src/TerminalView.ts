@@ -88,6 +88,12 @@ export class TerminalView extends ItemView {
       if (e.ctrlKey && e.type === "keydown") {
         const key = e.key.toLowerCase();
 
+        // Ctrl+Enter: 줄바꿈 삽입
+        if (key === "enter") {
+          this.pty?.write("\n");
+          return false;
+        }
+
         // Ctrl+C: 선택 텍스트 있으면 복사, 없으면 SIGINT
         if (key === "c" && this.terminal?.hasSelection()) {
           navigator.clipboard.writeText(this.terminal.getSelection()).catch(() => {});
@@ -183,6 +189,11 @@ export class TerminalView extends ItemView {
         this.pty?.write(this.preset!.command + "\n");
       }, 300));
     }
+  }
+
+  /** 외부에서 터미널에 텍스트 출력 (쿼리 결과 등) */
+  writeOutput(text: string): void {
+    this.terminal?.write(text);
   }
 
   async onClose(): Promise<void> {
