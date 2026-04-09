@@ -1,6 +1,7 @@
 import { Plugin, Notice, TFile, debounce } from "obsidian";
 import { TerminalView, VIEW_TYPE_TERMINAL } from "./TerminalView";
 import { SchemaMapView, VIEW_TYPE_SCHEMA_MAP } from "./SchemaMapView";
+import { RoadmapView, VIEW_TYPE_ROADMAP } from "./RoadmapView";
 import { AITerminalSettings, AITerminalSettingTab, DEFAULT_SETTINGS } from "./settings";
 import type { Preset } from "./settings";
 import { dumpVaultIndex } from "./vaultIndexer";
@@ -74,6 +75,9 @@ export default class AITerminalPlugin extends Plugin {
 
     // Schema Map
     this.setupSchemaMap();
+
+    // 로드맵 뷰
+    this.setupRoadmap();
 
     // 스케줄러
     this.setupScheduler();
@@ -302,6 +306,7 @@ export default class AITerminalPlugin extends Plugin {
     this.ruleSync?.stopLocalRuleWatch();
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_TERMINAL);
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_SCHEMA_MAP);
+    this.app.workspace.detachLeavesOfType(VIEW_TYPE_ROADMAP);
   }
 
   private setupSchemaMap(): void {
@@ -325,6 +330,25 @@ export default class AITerminalPlugin extends Plugin {
     this.addRibbonIcon("map", "Open Schema Map", () => {
       this.openSchemaMap();
     });
+  }
+
+  private setupRoadmap(): void {
+    this.registerView(VIEW_TYPE_ROADMAP, (leaf) => {
+      return new RoadmapView(leaf, this.settings);
+    });
+
+    this.addCommand({
+      id: "open-roadmap",
+      name: "Open Roadmap",
+      callback: () => this.openRoadmap(),
+    });
+  }
+
+  async openRoadmap(): Promise<void> {
+    const leaf = this.app.workspace.getRightLeaf(false);
+    if (!leaf) return;
+    await leaf.setViewState({ type: VIEW_TYPE_ROADMAP, active: true });
+    this.app.workspace.revealLeaf(leaf);
   }
 
   async openSchemaMap(): Promise<void> {
