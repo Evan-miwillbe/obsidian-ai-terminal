@@ -1,9 +1,11 @@
-import { ItemView, Modal, WorkspaceLeaf, App, Notice } from "obsidian";
+import { ItemView, Modal, SuggestModal, WorkspaceLeaf, App, Notice, TFile } from "obsidian";
 import {
   DeployRegistryManager,
   DeployEntry,
   PcEntry,
   ChatSourceEntry,
+  DimensionEntry,
+  HubConfig,
   ALL_TOOLS,
   TOOL_LABELS,
   getToolTargetPath,
@@ -101,9 +103,13 @@ export class SchemaMapView extends ItemView {
 
     // 툴바
     const toolbar = container.createDiv({ cls: "schema-map-toolbar" });
-    const verifyBtn = toolbar.createEl("button", { text: "\u{1F504} Verify All", cls: "schema-map-btn" });
+    const addDimBtn = toolbar.createEl("button", { text: "+ Dimension", cls: "schema-map-btn" });
+    addDimBtn.addEventListener("click", () => this.handleAddDimension());
+    const buildBtn = toolbar.createEl("button", { text: "Build Hub", cls: "schema-map-btn" });
+    buildBtn.addEventListener("click", () => this.handleBuildHub());
+    const verifyBtn = toolbar.createEl("button", { text: "Verify All", cls: "schema-map-btn" });
     verifyBtn.addEventListener("click", () => this.handleVerifyAll());
-    const addBtn = toolbar.createEl("button", { text: "+ Add Project", cls: "schema-map-btn" });
+    const addBtn = toolbar.createEl("button", { text: "+ Project", cls: "schema-map-btn" });
     addBtn.addEventListener("click", () => this.handleAddProject());
 
     // 그래프 영역
@@ -113,8 +119,13 @@ export class SchemaMapView extends ItemView {
     await this.registry.loadRegistry();
     this.registry.registerCurrentPc();
     await this.registry.verifyAll();
-    await this.registry.saveRegistry();
 
+    // 디멘션 freshness 체크
+    for (const project of this.registry.getAllProjects()) {
+      await this.registry.checkDimensionFreshness(project);
+    }
+
+    await this.registry.saveRegistry();
     this.renderAllGraphs();
   }
 
@@ -154,10 +165,31 @@ export class SchemaMapView extends ItemView {
 
     // ── 노드 배치 계산 ──
 
-    // 왼쪽 열: Chat Sources (레지스트리에서 로드)
+    // 1열: 디멘션 노드
+    const hub = this.registry.getHubConfig(project);
+    const dims = hub.dimensions;
+
+    const dimX = PAD;
+    dims.forEach((dim, i) => {
+      const y = PAD + i * (NODE_H_BASE + PROP_LINE_H + ROW_GAP);
+      nodes.push({
+        id: `dim-${i}`,
+        x: dimX,
+        y,
+        w: NODE_W,
+        h: NODE_H_BASE + PROP_LINE_H,
+        title: dim.label,
+        props: [dim.path.split("/").slice(-2).join("/")],
+        fill: "#2a3a4a",
+        stroke: hub.buildStatus === "stale" ? "#aa8a2a" : "#4a6a7a",
+        data: { type: "dimension", project, dimension: dim, index: i },
+      });
+    });
+
+    // 2열: Chat Sources (레지스트리에서 로드)
     const sources = this.registry.getSources(project);
 
-    const leftX = PAD;
+    const leftX = dimX + (dims.length > 0 ? NODE_W + COL_GAP : 0);
     sources.forEach((src, i) => {
       const badge = sourceBadge(src.status);
       const y = PAD + i * (NODE_H_BASE + PROP_LINE_H * 2 + ROW_GAP);
@@ -175,7 +207,7 @@ export class SchemaMapView extends ItemView {
       });
     });
 
-    // 중앙 열: Project + Hub 파일
+    // 3열: Project + Hub 파일
     const centerX = leftX + NODE_W + COL_GAP;
     const hubFiles = ["HUB.md", "SOURCES.md", "CONTEXT.md"];
     const projectNodeH = NODE_H_BASE + hubFiles.length * PROP_LINE_H;
@@ -232,6 +264,11 @@ export class SchemaMapView extends ItemView {
     }
 
     // ── 엣지 ──
+    // Dimensions → Project (빌드 상태에 따라 색상 변경)
+    dims.forEach((_, i) => {
+      const label = hub.buildStatus === "stale" ? "stale" : hub.buildStatus === "synced" ? "synced" : "build";
+      edges.push({ from: `dim-${i}`, to: "project", label });
+    });
     // Sources → Project
     for (const src of sources) {
       edges.push({ from: `src-${src.tool}`, to: "project", label: "source" });
@@ -278,10 +315,16 @@ export class SchemaMapView extends ItemView {
       const x2 = toNode.x;
       const y2 = toNode.y + toNode.h / 2;
 
+      // 엣지 색상: synced=녹색, stale=노란색, 기본=청록
+      let edgeColor = COLORS.line;
+      if (edge.label === "synced") edgeColor = "#4a8a4a";
+      else if (edge.label === "stale") edgeColor = "#aa8a2a";
+      else if (edge.label === "build") edgeColor = "#6a6a8a";
+
       const line = svgEl("line", {
         x1: String(x1), y1: String(y1),
         x2: String(x2), y2: String(y2),
-        stroke: COLORS.line, "stroke-width": "1.5", "stroke-opacity": "0.6",
+        stroke: edgeColor, "stroke-width": "1.5", "stroke-opacity": "0.6",
       });
       svg.appendChild(line);
 
@@ -354,6 +397,18 @@ export class SchemaMapView extends ItemView {
   /* ── 노드 클릭 ── */
 
   private handleNodeClick(node: GNode): void {
+    if (node.data?.type === "dimension") {
+      // 디멘션 클릭: 해당 노트를 에디터에서 열기
+      const dim = node.data.dimension as DimensionEntry;
+      const file = this.app.vault.getAbstractFileByPath(dim.path);
+      if (file) {
+        this.app.workspace.getLeaf(false).openFile(file as any);
+      } else {
+        new Notice(`파일을 찾을 수 없습니다: ${dim.path}`);
+      }
+      return;
+    }
+
     if (node.data?.type === "source") {
       this.openSourceModal(node.data.project, node.data.source);
       return;
@@ -470,6 +525,64 @@ export class SchemaMapView extends ItemView {
       this.renderAllGraphs();
       new Notice(`Project added: ${projectName}`);
     }).open();
+  }
+
+  /* ── Dimension 추가 ── */
+
+  private handleAddDimension(): void {
+    const projects = this.registry.getAllProjects();
+    if (projects.length === 0) {
+      new Notice("먼저 프로젝트를 추가하세요");
+      return;
+    }
+
+    // 프로젝트가 1개면 바로, 여러 개면 선택
+    const project = projects.length === 1 ? projects[0] : null;
+    if (project) {
+      this.openDimensionPicker(project);
+    } else {
+      new SelectProjectModal(this.app, projects, (selected) => {
+        this.openDimensionPicker(selected);
+      }).open();
+    }
+  }
+
+  private openDimensionPicker(project: string): void {
+    // 볼트의 모든 .md 파일에서 선택
+    const files = this.app.vault.getMarkdownFiles();
+    new DimensionPickerModal(this.app, files, async (selected) => {
+      for (const file of selected) {
+        this.registry.addDimension(project, file.path, file.basename);
+      }
+      await this.registry.saveRegistry();
+      this.renderAllGraphs();
+      new Notice(`${selected.length}개 디멘션 추가됨`);
+    }).open();
+  }
+
+  /* ── Hub 빌드 ── */
+
+  private async handleBuildHub(): Promise<void> {
+    const projects = this.registry.getAllProjects();
+    if (projects.length === 0) {
+      new Notice("프로젝트가 없습니다");
+      return;
+    }
+
+    for (const project of projects) {
+      const hub = this.registry.getHubConfig(project);
+      if (hub.dimensions.length === 0) continue;
+
+      try {
+        const hubPath = await this.registry.buildHub(project);
+        new Notice(`빌드 완료: ${hubPath}`);
+      } catch (err: any) {
+        new Notice(`빌드 실패 (${project}): ${err.message}`);
+      }
+    }
+
+    await this.registry.saveRegistry();
+    this.renderAllGraphs();
   }
 
   /* ── 유틸 ── */
@@ -699,6 +812,67 @@ function statusBadge(status: string): string {
     case "broken": return "\u{1F534}";
     case "deferred": return "\u23F8\uFE0F";
     default: return "\u2B1C";
+  }
+}
+
+/* ── SelectProjectModal ──────────────────────────── */
+
+class SelectProjectModal extends Modal {
+  constructor(
+    app: App,
+    private projects: string[],
+    private onSelect: (project: string) => void,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.createEl("h3", { text: "프로젝트 선택" });
+    for (const p of this.projects) {
+      const btn = contentEl.createEl("button", { text: p, cls: "schema-map-btn" });
+      btn.style.display = "block";
+      btn.style.marginBottom = "4px";
+      btn.style.width = "100%";
+      btn.addEventListener("click", () => {
+        this.close();
+        this.onSelect(p);
+      });
+    }
+  }
+
+  onClose(): void { this.contentEl.empty(); }
+}
+
+/* ── DimensionPickerModal ────────────────────────── */
+
+class DimensionPickerModal extends SuggestModal<TFile> {
+  private selected: TFile[] = [];
+
+  constructor(
+    app: App,
+    private files: TFile[],
+    private onDone: (selected: TFile[]) => void,
+  ) {
+    super(app);
+    this.setPlaceholder("디멘션 .md 파일을 선택하세요 (Enter로 추가, Esc로 완료)");
+  }
+
+  getSuggestions(query: string): TFile[] {
+    const lower = query.toLowerCase();
+    return this.files.filter((f) =>
+      f.basename.toLowerCase().includes(lower) || f.path.toLowerCase().includes(lower)
+    ).slice(0, 20);
+  }
+
+  renderSuggestion(file: TFile, el: HTMLElement): void {
+    el.createEl("div", { text: file.basename, cls: "suggestion-title" });
+    el.createEl("small", { text: file.path, cls: "suggestion-note" });
+  }
+
+  onChooseSuggestion(file: TFile): void {
+    this.selected.push(file);
+    this.onDone(this.selected);
   }
 }
 

@@ -35,10 +35,24 @@ export interface ChatSourceEntry {
   note: string;           // 사용자 메모
 }
 
+export interface DimensionEntry {
+  path: string;        // 볼트 상대 경로 (e.g., "10_Project/하네스팩토리/아키텍처_설계.md")
+  label: string;       // 표시 이름 (basename)
+  addedAt: string;     // ISO 8601
+}
+
+export interface HubConfig {
+  dimensions: DimensionEntry[];
+  lastBuild: string | null;     // ISO 8601
+  hubPath: string | null;       // 빌드된 HUB .md 경로
+  buildStatus: "synced" | "stale" | "never";
+}
+
 export interface DeployRegistry {
   pcs: PcEntry[];
   entries: DeployEntry[];
   sources: Record<string, ChatSourceEntry[]>;  // project → sources
+  hubs: Record<string, HubConfig>;             // project → hub config
 }
 
 /* ── 상수 ────────────────────────────────────────── */
@@ -71,7 +85,7 @@ export function generateEntryId(pc: string, tool: string, project: string): stri
 /* ── Manager ─────────────────────────────────────── */
 
 export class DeployRegistryManager {
-  private registry: DeployRegistry = { pcs: [], entries: [], sources: {} };
+  private registry: DeployRegistry = { pcs: [], entries: [], sources: {}, hubs: {} };
   private currentPcId: string = "";
 
   constructor(
@@ -127,12 +141,12 @@ export class DeployRegistryManager {
       if (exists) {
         const raw = await this.app.vault.adapter.read(this.registryPath);
         const parsed = JSON.parse(raw);
-        this.registry = { pcs: [], entries: [], sources: {}, ...parsed };
+        this.registry = { pcs: [], entries: [], sources: {}, hubs: {}, ...parsed };
       } else {
-        this.registry = { pcs: [], entries: [], sources: {} };
+        this.registry = { pcs: [], entries: [], sources: {}, hubs: {} };
       }
     } catch {
-      this.registry = { pcs: [], entries: [], sources: {} };
+      this.registry = { pcs: [], entries: [], sources: {}, hubs: {} };
     }
     return this.registry;
   }
@@ -171,6 +185,138 @@ export class DeployRegistryManager {
     };
     this.registry.pcs.push(entry);
     return entry;
+  }
+
+  /* ── Hub / Dimension CRUD ── */
+
+  getHubConfig(project: string): HubConfig {
+    if (!this.registry.hubs[project]) {
+      this.registry.hubs[project] = {
+        dimensions: [],
+        lastBuild: null,
+        hubPath: null,
+        buildStatus: "never",
+      };
+    }
+    return this.registry.hubs[project];
+  }
+
+  addDimension(project: string, vaultPath: string, label: string): void {
+    const hub = this.getHubConfig(project);
+    if (hub.dimensions.some((d) => d.path === vaultPath)) return;
+    hub.dimensions.push({
+      path: vaultPath,
+      label,
+      addedAt: new Date().toISOString(),
+    });
+    hub.buildStatus = "stale";
+  }
+
+  removeDimension(project: string, vaultPath: string): void {
+    const hub = this.getHubConfig(project);
+    hub.dimensions = hub.dimensions.filter((d) => d.path !== vaultPath);
+    hub.buildStatus = hub.dimensions.length > 0 ? "stale" : "never";
+  }
+
+  /** 디멘션 파일의 mtime과 허브 빌드 시간 비교하여 buildStatus 갱신 */
+  async checkDimensionFreshness(project: string): Promise<void> {
+    const hub = this.getHubConfig(project);
+    if (hub.dimensions.length === 0) {
+      hub.buildStatus = "never";
+      return;
+    }
+    if (!hub.lastBuild) {
+      hub.buildStatus = "stale";
+      return;
+    }
+
+    const buildTime = new Date(hub.lastBuild).getTime();
+
+    for (const dim of hub.dimensions) {
+      try {
+        const stat = await this.app.vault.adapter.stat(dim.path);
+        if (stat && stat.mtime > buildTime) {
+          hub.buildStatus = "stale";
+          return;
+        }
+      } catch {
+        hub.buildStatus = "stale";
+        return;
+      }
+    }
+
+    hub.buildStatus = "synced";
+  }
+
+  /** 디멘션 파일들을 읽어서 허브노트 빌드 */
+  async buildHub(project: string): Promise<string> {
+    const hub = this.getHubConfig(project);
+    if (hub.dimensions.length === 0) {
+      throw new Error("디멘션이 없습니다. 먼저 디멘션을 추가하세요.");
+    }
+
+    const sections: string[] = [];
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
+    // 프론트매터
+    sections.push("---");
+    sections.push(`id: hub_${project}`);
+    sections.push(`type: hub`);
+    sections.push(`dimensions:`);
+    for (const dim of hub.dimensions) {
+      sections.push(`  - "${dim.path}"`);
+    }
+    sections.push(`last_build: ${now.toISOString()}`);
+    sections.push(`status: synced`);
+    sections.push("---");
+    sections.push("");
+    sections.push(`# Hub: ${project}`);
+    sections.push(`> 자동 빌드 (${dateStr}) — ${hub.dimensions.length}개 디멘션`);
+    sections.push("");
+
+    // 각 디멘션 내용 합치기
+    for (const dim of hub.dimensions) {
+      try {
+        const content = await this.app.vault.adapter.read(dim.path);
+        // 프론트매터 제거
+        const stripped = content.replace(/^---[\s\S]*?---\n*/m, "");
+        sections.push(`## ${dim.label}`);
+        sections.push("");
+        sections.push(stripped.trim());
+        sections.push("");
+        sections.push("---");
+        sections.push("");
+      } catch {
+        sections.push(`## ${dim.label}`);
+        sections.push(`> ⚠️ 파일을 읽을 수 없습니다: ${dim.path}`);
+        sections.push("");
+      }
+    }
+
+    const hubContent = sections.join("\n");
+
+    // 허브노트 경로 결정
+    const projectName = project.split("/").pop() ?? project;
+    const hubPath = hub.hubPath || `${project}/HUB_${projectName}.md`;
+
+    // 디렉토리 확보
+    const dir = hubPath.substring(0, hubPath.lastIndexOf("/"));
+    if (dir) {
+      const dirExists = await this.app.vault.adapter.exists(dir);
+      if (!dirExists) {
+        await this.app.vault.adapter.mkdir(dir);
+      }
+    }
+
+    await this.app.vault.adapter.write(hubPath, hubContent);
+
+    // 상태 갱신
+    hub.hubPath = hubPath;
+    hub.lastBuild = now.toISOString();
+    hub.buildStatus = "synced";
+
+    return hubPath;
   }
 
   /* ── Entry CRUD ── */
