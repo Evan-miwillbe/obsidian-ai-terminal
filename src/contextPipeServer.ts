@@ -1,7 +1,9 @@
 import * as net from "net";
 import * as fs from "fs";
+import { App, TFile } from "obsidian";
 import { Watchdog, type ContextIndex } from "./watchdog";
 import type { AcpLayer } from "./acpLayer";
+import type { TerminalView } from "./TerminalView";
 
 // ── Named Pipe / Unix Socket 서버 ──
 // 터미널 세션 및 외부 에이전트가 연결하여 볼트 컨텍스트를 받아가는 서버
@@ -41,12 +43,21 @@ export class ContextPipeServer {
   private clients = new Set<net.Socket>();
   private unsubscribe: (() => void) | null = null;
   private acpLayer: AcpLayer | null = null;
+  private app: App;
+  private getTerminalView: (() => TerminalView | null) | null = null;
 
-  constructor(private watchdog: Watchdog) {}
+  constructor(private watchdog: Watchdog, app: App) {
+    this.app = app;
+  }
 
   /** ACP 레이어 연결 */
   setAcpLayer(acp: AcpLayer): void {
     this.acpLayer = acp;
+  }
+
+  /** 터미널 뷰 접근 콜백 설정 */
+  setTerminalViewGetter(getter: () => TerminalView | null): void {
+    this.getTerminalView = getter;
   }
 
   get pipePath(): string {
@@ -211,6 +222,75 @@ export class ContextPipeServer {
       case "notifications/initialized":
         return null; // 알림은 응답 없음
 
+      // ── Obsidian 제어 메서드 ──
+
+      case "obsidian/openNote": {
+        const notePath = params?.path;
+        if (!notePath) {
+          return { jsonrpc: "2.0", id, error: { code: -32602, message: "path 필수" } };
+        }
+        const file = this.app.vault.getAbstractFileByPath(notePath);
+        if (!file || !(file instanceof TFile)) {
+          return { jsonrpc: "2.0", id, error: { code: -32000, message: `파일 없음: ${notePath}` } };
+        }
+        this.app.workspace.getLeaf(false).openFile(file);
+        return { jsonrpc: "2.0", id, result: { opened: notePath } };
+      }
+
+      case "obsidian/executeCommand": {
+        const commandId = params?.id;
+        if (!commandId) {
+          return { jsonrpc: "2.0", id, error: { code: -32602, message: "id 필수" } };
+        }
+        try {
+          (this.app as any).commands.executeCommandById(commandId);
+          return { jsonrpc: "2.0", id, result: { executed: commandId } };
+        } catch (err: any) {
+          return { jsonrpc: "2.0", id, error: { code: -32000, message: err.message } };
+        }
+      }
+
+      case "obsidian/listCommands": {
+        const commands = Object.keys((this.app as any).commands?.commands ?? {});
+        return { jsonrpc: "2.0", id, result: { commands } };
+      }
+
+      case "vault/write": {
+        const writePath = params?.path;
+        const content = params?.content;
+        if (!writePath || content === undefined) {
+          return { jsonrpc: "2.0", id, error: { code: -32602, message: "path, content 필수" } };
+        }
+        this.handleVaultWrite(id, writePath, content, socket);
+        return null; // 비동기
+      }
+
+      case "terminal/sendKeys": {
+        const keys = params?.keys;
+        if (!keys) {
+          return { jsonrpc: "2.0", id, error: { code: -32602, message: "keys 필수" } };
+        }
+        const tv = this.getTerminalView?.();
+        if (!tv) {
+          return { jsonrpc: "2.0", id, error: { code: -32000, message: "터미널 뷰가 열려있지 않음" } };
+        }
+        tv.sendKeys(keys);
+        return { jsonrpc: "2.0", id, result: { sent: true, length: keys.length } };
+      }
+
+      case "terminal/output": {
+        const text = params?.text;
+        if (!text) {
+          return { jsonrpc: "2.0", id, error: { code: -32602, message: "text 필수" } };
+        }
+        const termView = this.getTerminalView?.();
+        if (!termView) {
+          return { jsonrpc: "2.0", id, error: { code: -32000, message: "터미널 뷰가 열려있지 않음" } };
+        }
+        termView.writeOutput(text);
+        return { jsonrpc: "2.0", id, result: { written: true } };
+      }
+
       // ── ACP: 에이전트 관련 메서드 ──
 
       case "agent/list":
@@ -297,6 +377,34 @@ export class ContextPipeServer {
         error: { code: -32000, message: `읽기 실패: ${err.message}` },
       };
       socket.write(JSON.stringify(response) + "\n");
+    }
+  }
+
+  private async handleVaultWrite(
+    id: number | string | null,
+    filePath: string,
+    content: string,
+    socket: net.Socket,
+  ): Promise<void> {
+    try {
+      // 디렉토리 확보
+      const dir = filePath.substring(0, filePath.lastIndexOf("/"));
+      if (dir) {
+        const dirExists = await this.app.vault.adapter.exists(dir);
+        if (!dirExists) await this.app.vault.adapter.mkdir(dir);
+      }
+      await this.app.vault.adapter.write(filePath, content);
+      const response: JsonRpcResponse = {
+        jsonrpc: "2.0", id,
+        result: { written: filePath },
+      };
+      if (!socket.destroyed) socket.write(JSON.stringify(response) + "\n");
+    } catch (err: any) {
+      const response: JsonRpcResponse = {
+        jsonrpc: "2.0", id,
+        error: { code: -32000, message: err.message },
+      };
+      if (!socket.destroyed) socket.write(JSON.stringify(response) + "\n");
     }
   }
 

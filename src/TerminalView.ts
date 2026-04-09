@@ -199,9 +199,14 @@ export class TerminalView extends ItemView {
     }
   }
 
-  /** 외부에서 터미널에 텍스트 출력 (쿼리 결과 등) */
+  /** 외부에서 터미널 화면에 텍스트 출력 (쿼리 결과 등) */
   writeOutput(text: string): void {
     this.terminal?.write(text);
+  }
+
+  /** 외부에서 PTY에 키 입력 전달 (sendKeys) */
+  sendKeys(keys: string): void {
+    this.pty?.write(keys);
   }
 
   async onClose(): Promise<void> {

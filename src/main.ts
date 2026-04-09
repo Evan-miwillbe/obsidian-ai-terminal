@@ -483,8 +483,12 @@ export default class AITerminalPlugin extends Plugin {
     this.acpLayer.checkAvailability(); // 비동기, 백그라운드 실행
 
     // Named Pipe Server 시작
-    this.pipeServer = new ContextPipeServer(this.watchdog);
+    this.pipeServer = new ContextPipeServer(this.watchdog, this.app);
     this.pipeServer.setAcpLayer(this.acpLayer);
+    this.pipeServer.setTerminalViewGetter(() => {
+      const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_TERMINAL);
+      return leaves.length > 0 ? (leaves[0].view as TerminalView) : null;
+    });
     try {
       this.pipeServer.start();
     } catch (err) {

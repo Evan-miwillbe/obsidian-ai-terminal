@@ -56,3 +56,28 @@ Design doc: `docs/MCP연결계획.md`
 - Harness (ruleSync): outbound — vault atoms → external LLM configs.
 - Log system: inbound — agent activity → vault logs.
 - No overlap. Hub notes must record facts only, never suggest rule changes.
+
+## Named Pipe Architecture (confirmed 2026-04-09)
+
+### Pipe Server: `\\.\pipe\obsidian-ai-terminal`
+- JSON-RPC 2.0 over Named Pipe (Win) / Unix Socket (Mac/Linux)
+- Started on plugin load, stopped on unload
+- Any local process can connect (not just plugin terminals)
+
+### Available Methods
+- **Read**: `context/get`, `context/activeNote`, `context/hubs`, `context/recent`, `vault/read`
+- **Write**: `vault/write`
+- **Control**: `obsidian/openNote`, `obsidian/executeCommand`, `obsidian/listCommands`
+- **Terminal**: `terminal/sendKeys`, `terminal/output`
+- **ACP**: `agent/list`, `agent/invoke`, `agent/status`, `agent/cancel`
+- **Notifications**: `vault/changed` (broadcast to all connected clients)
+
+### wmux Integration (planned)
+- Obsidian connects to `\\.\pipe\wmux-daemon` as client for terminal sendKeys
+- wmux connects to `\\.\pipe\obsidian-ai-terminal` as client for vault context
+- Design doc: `docs/prompt_wmux_named_pipe_integration.md`
+
+### Key Constraint
+- `claude -p` headless mode is unreliable (timeout, context limits)
+- For real Claude Code session control, use wmux's PTY → sendKeys
+- Named Pipe is bidirectional but each side needs its own server

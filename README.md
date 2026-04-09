@@ -23,14 +23,35 @@ Full TUI support — colors, cursor movement, interactive input — for apps lik
 
 ## Features
 
+### Terminal (Phase 1)
 - **Full terminal emulation** — powered by [xterm.js](https://xtermjs.org/)
 - **Cross-platform** — macOS (Python PTY) + Windows (ConPTY)
 - **AI CLI presets** — one-click launch for Claude Code, Gemini CLI, or any CLI tool
 - **Vault-aware** — automatically sets working directory to your vault root
-- **Login shell** — loads your shell profile, so nvm, homebrew, etc. just work
-- **Resizable** — terminal auto-fits to panel size with proper PTY resize signals
-- **Customizable** — font size, font family, shell path, custom presets
 - **No native modules** — works across Obsidian updates without recompilation
+
+### Vault Intelligence (Phase 2)
+- **Vault search** — `/search tag:keyword`, `/backlinks`, `/links` with ANSI terminal output
+- **Natural language scheduling** (`/ot`) — "매일 아침 8시에 노트 요약해줘" → cron auto-registration
+- **MCP Server** — schedule CRUD via stdio (Claude Code integration)
+- **Log system** — `_logs/{host}/{agent}/{date}.md` append-only per PC/agent
+- **Hub generator** — progressive summarization (daily → weekly → monthly) via `claude -p`
+
+### Schema Map (Phase 3)
+- **Dimension → Hub → Deploy** visual editor (SVG)
+- **Hub build engine** — merge dimension .md files into `HUB_{project}.md`
+- **Change detection** — dimension edits turn connection lines yellow (stale)
+
+### Roadmap View (Phase 4)
+- **SVG Gantt chart** — scans `node_type` frontmatter from vault .md files
+- **Depth grouping** — project → phase → epic → task → subtask
+- **Progress bars** + dependency arrows
+
+### Named Pipe + ACP (Phase 5)
+- **Context Pipe Server** — `\\.\pipe\obsidian-ai-terminal` (JSON-RPC 2.0)
+- **Vault read/write, note control, terminal sendKeys** from any local process
+- **ACP multi-agent** — invoke Claude Code, Codex, Gemini CLI in parallel
+- **wmux integration** — bidirectional Named Pipe for terminal session control (planned)
 
 ## How It Works
 
@@ -115,19 +136,32 @@ Go to **Settings → AI Terminal → Presets** to add your own:
 
 ```
 src/
-├── main.ts           # Plugin entry point — commands, ribbon, settings tab
-├── TerminalView.ts   # xterm.js terminal view (Obsidian ItemView)
-├── PtyProcess.ts     # Platform-aware PTY process manager
-├── pty-helper.py     # macOS/Linux: Python 3 PTY allocator + I/O relay
-├── presets.ts        # Default AI CLI presets
-└── settings.ts       # Plugin settings & UI
+├── main.ts              # Plugin entry — commands, subsystem init, lifecycle
+├── TerminalView.ts      # xterm.js terminal (Obsidian ItemView)
+├── PtyProcess.ts        # Platform-aware PTY process manager
+├── pty-helper.py        # macOS/Linux: Python 3 PTY allocator + I/O relay
+├── presets.ts           # Default AI CLI presets
+├── settings.ts          # Plugin settings & UI
+├── watchdog.ts          # Vault change detection → ContextIndex
+├── contextPipeServer.ts # Named Pipe server (JSON-RPC 2.0)
+├── acpLayer.ts          # ACP multi-agent (invoke, cancel, parallel)
+├── otCommand.ts         # /ot natural language schedule modal
+├── vaultQuery.ts        # /search, /backlinks, /links
+├── logWriter.ts         # _logs folder append-only log writer
+├── hubGenerator.ts      # Hub generation engine (progressive summary)
+├── scheduler.ts         # Cron scheduler (claude -p execution)
+├── SchemaMapView.ts     # Schema map SVG (dimension → hub → deploy)
+├── RoadmapView.ts       # Roadmap Gantt chart (SVG)
+├── deployRegistry.ts    # Deploy registry (symlink/copy management)
+├── ruleSync.ts          # Rule sync (Harness → LLM configs)
+├── vaultIndexer.ts      # Vault metadata JSON dump
+└── contextSync.ts       # Context sync script generator
 
-conpty-bridge/        # Windows: Rust ConPTY bridge
-├── Cargo.toml
-└── src/
-    ├── main.rs       # Entry point — create ConPTY, spawn shell, relay I/O
-    ├── conpty.rs      # ConPTY API wrapper (CreatePseudoConsole, resize, Job Object)
-    └── pipe_relay.rs  # Threaded stdin/stdout relay + resize sequence parser
+scripts/
+├── mcp-schedule-server.mjs  # Standalone MCP stdio server (schedule CRUD)
+└── antigravity_extract.py   # Antigravity conversation extractor
+
+conpty-bridge/               # Windows: Rust ConPTY bridge
 ```
 
 ### Key design decisions
@@ -142,12 +176,16 @@ conpty-bridge/        # Windows: Rust ConPTY bridge
 
 ## Roadmap
 
-- [x] macOS support (Python PTY)
-- [x] Windows support (ConPTY bridge)
-- [x] Linux support (Python PTY + python3/python fallback) — WSL(Ubuntu 24.04) 환경 확인 완료, Obsidian 설치 후 플러그인 통합 테스트 재시도 예정
-- [ ] Multiple terminal tabs
-- [ ] Session persistence across Obsidian restarts
-- [ ] Obsidian theme-aware terminal colors
+- [x] Phase 1: macOS + Windows + Linux terminal
+- [x] Phase 2: Vault intelligence (/ot, MCP, queries, logs, hub generator)
+- [x] Phase 3: Schema map (dimension → hub build → deploy)
+- [x] Phase 4: Roadmap view (SVG Gantt chart)
+- [x] Phase 5-A: Named Pipe context server + injector
+- [x] Phase 5-B: ACP multi-agent orchestration
+- [ ] Phase 5-C: Multiple terminal tabs, session persistence, theme colors
+- [ ] wmux integration (bidirectional Named Pipe terminal control)
+- [ ] Linux Obsidian GUI test (community plugin registration blocker)
+- [ ] Community plugin store registration
 
 ## Building the ConPTY Bridge (Windows)
 
