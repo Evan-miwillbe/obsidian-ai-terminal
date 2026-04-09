@@ -10,6 +10,9 @@ import { RuleSync } from "./ruleSync";
 import { DeployRegistryManager } from "./deployRegistry";
 import { writeSyncScript } from "./contextSync";
 import { OtModal } from "./otCommand";
+import { Watchdog } from "./watchdog";
+import { ContextPipeServer, getPipePath } from "./contextPipeServer";
+import { AcpLayer } from "./acpLayer";
 import {
   searchVault,
   queryBacklinks,
@@ -24,6 +27,9 @@ export default class AITerminalPlugin extends Plugin {
   scheduler: Scheduler | null = null;
   ruleSync: RuleSync | null = null;
   deployRegistry: DeployRegistryManager | null = null;
+  watchdog: Watchdog | null = null;
+  pipeServer: ContextPipeServer | null = null;
+  acpLayer: AcpLayer | null = null;
 
   private get pluginDir(): string {
     const vaultPath = (this.app.vault.adapter as any).basePath as string;
@@ -66,6 +72,9 @@ export default class AITerminalPlugin extends Plugin {
         new Notice("Vault index saved");
       },
     });
+
+    // Watchdog + Context Pipe Server
+    this.setupContextPipe();
 
     // 자동 Vault Index 덤프
     this.setupVaultIndexAutoSync();
@@ -234,6 +243,46 @@ export default class AITerminalPlugin extends Plugin {
       },
     });
 
+    // ACP 에이전트 호출 커맨드
+    this.addCommand({
+      id: "acp-invoke-agent",
+      name: "Invoke AI agent (ACP)",
+      callback: async () => {
+        if (!this.acpLayer) {
+          new Notice("ACP가 초기화되지 않았습니다");
+          return;
+        }
+        const agents = this.acpLayer.getAgents().filter((a) => a.available);
+        if (agents.length === 0) {
+          new Notice("사용 가능한 에이전트가 없습니다 (claude, codex, gemini 중 하나를 설치하세요)");
+          return;
+        }
+
+        const agentNames = agents.map((a) => a.name).join(", ");
+        const input = window.prompt(`에이전트에 보낼 프롬프트:\n(사용 가능: ${agentNames})`);
+        if (!input) return;
+
+        // 첫 번째 사용 가능한 에이전트에 전달
+        const agent = agents[0];
+        new Notice(`${agent.name}에 전달 중...`);
+
+        try {
+          const result = await this.acpLayer.invoke(agent.id, input);
+          if (result.status === "completed") {
+            // 결과를 터미널에 출력
+            this.writeToActiveTerminal(
+              `\r\n\x1b[36m[${agent.name}]\x1b[0m\r\n${result.result}\r\n`,
+            );
+            new Notice(`${agent.name} 완료`);
+          } else {
+            new Notice(`${agent.name} 실패: ${result.error}`);
+          }
+        } catch (err: any) {
+          new Notice(`에이전트 호출 실패: ${err.message}`);
+        }
+      },
+    });
+
     // /ot 커맨드 — 자연어 스케줄 등록
     this.addCommand({
       id: "ot-schedule",
@@ -302,6 +351,7 @@ export default class AITerminalPlugin extends Plugin {
   }
 
   onunload(): void {
+    this.pipeServer?.stop();
     this.scheduler?.stop();
     this.ruleSync?.stopLocalRuleWatch();
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_TERMINAL);
@@ -403,6 +453,43 @@ export default class AITerminalPlugin extends Plugin {
       this.settings.hostName,
     );
     this.scheduler.start(this.settings.schedulerPollMs);
+  }
+
+  private setupContextPipe(): void {
+    // Watchdog: 볼트 변경 감지 + 컨텍스트 인덱스
+    this.watchdog = new Watchdog(this.app);
+
+    // 활성 노트 변경 추적
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", (leaf) => {
+        const file = leaf?.view?.getState?.()?.file;
+        this.watchdog?.setActiveNote(file || null);
+      }),
+    );
+
+    // 파일 변경 시 인덱스 갱신 (디바운스)
+    const debouncedRebuild = debounce(() => this.watchdog?.rebuild(), 2000, true);
+    this.registerEvent(
+      this.app.metadataCache.on("changed", () => debouncedRebuild()),
+    );
+
+    // 초기 빌드
+    this.app.metadataCache.on("resolved", () => {
+      this.watchdog?.rebuild();
+    });
+
+    // ACP Layer
+    this.acpLayer = new AcpLayer(this.app, this.watchdog);
+    this.acpLayer.checkAvailability(); // 비동기, 백그라운드 실행
+
+    // Named Pipe Server 시작
+    this.pipeServer = new ContextPipeServer(this.watchdog);
+    this.pipeServer.setAcpLayer(this.acpLayer);
+    try {
+      this.pipeServer.start();
+    } catch (err) {
+      console.error("Context Pipe Server 시작 실패:", err);
+    }
   }
 
   private setupVaultIndexAutoSync(): void {

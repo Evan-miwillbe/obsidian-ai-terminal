@@ -162,7 +162,15 @@ export class TerminalView extends ItemView {
     // 프리셋이 있으면 프리셋 명령어로 실행, 없으면 기본 셸
     const shell = this.settings.defaultShell || "/bin/zsh";
 
-    this.pty = new PtyProcess(shell, cwd, this.pluginDir);
+    // 컨텍스트 파이프 경로를 환경변수로 전달
+    const pipePath = process.platform === "win32"
+      ? "\\\\.\\pipe\\obsidian-ai-terminal"
+      : "/tmp/obsidian-ai-terminal.sock";
+
+    this.pty = new PtyProcess(shell, cwd, this.pluginDir, {
+      OBSIDIAN_CONTEXT_PIPE: pipePath,
+      OBSIDIAN_VAULT_PATH: vaultPath,
+    });
 
     this.pty.on("data", (data: string) => {
       this.terminal?.write(data);
