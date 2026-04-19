@@ -320,7 +320,7 @@ export class TerminalView extends ItemView {
     const splitEl = this.splitsWrapperEl!.createDiv({ cls: "ai-terminal-split-pane" });
     const header = splitEl.createDiv({ cls: "ai-terminal-split-header" });
     const splitName = header.createSpan({ cls: "ai-terminal-split-name", text: tab.name });
-    splitName.addEventListener("dblclick", () => this.renameTab(tab.id));
+    splitName.addEventListener("contextmenu", (e) => { e.preventDefault(); this.renameTab(tab.id); });
     const closeBtn = header.createSpan({ cls: "ai-terminal-split-close", text: "×" });
     closeBtn.addEventListener("click", () => {
       if (!confirm(`Close "${tab.name}"?`)) return;
@@ -392,7 +392,8 @@ export class TerminalView extends ItemView {
       this.closeTab(idx);
     });
     btn.addEventListener("click", () => this.showTabInMain(tab.id));
-    btn.addEventListener("dblclick", (e) => {
+    btn.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
       e.stopPropagation();
       this.renameTab(tab.id);
     });
