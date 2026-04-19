@@ -3,7 +3,7 @@ import { spawn } from "child_process";
 import * as path from "path";
 import { HubGenerator, type HubDepth } from "./hubGenerator";
 
-// ── 스케줄 테이블 스키마 ──
+// ── 调度表模式定义 ──
 
 export type ScheduleAction =
   | "claude-prompt"
@@ -14,13 +14,13 @@ export type ScheduleAction =
 export interface ScheduleEntry {
   id: string;
   name: string;
-  cron: string;          // "분 시 일 월 요일" (5필드)
+  cron: string;          // "分 时 日 月 星期"（5字段）
   output: "daily-note" | "notice" | "none";
   enabled: boolean;
   lastRun: string | null; // ISO 8601
   createdAt: string;
-  // 프롬프트는 schedules/{id}.md 파일에 별도 저장
-  // ── 확장 필드 ──
+  // prompt 单独保存在 schedules/{id}.md 文件中
+  // ── 扩展字段 ──
   source?: "cli" | "mcp" | "ot";
   action?: ScheduleAction;
   actionInput?: Record<string, any>;
@@ -33,7 +33,7 @@ export interface ScheduleTable {
 
 const EMPTY_TABLE: ScheduleTable = { version: 1, schedules: [] };
 
-// ── Cron 파서 (라이브러리 없음) ──
+// ── Cron 解析器（无外部依赖） ──
 
 function matchCronField(field: string, value: number, max: number): boolean {
   if (field === "*") return true;
@@ -57,7 +57,7 @@ function matchCronField(field: string, value: number, max: number): boolean {
   return false;
 }
 
-/** 현재 시각(분 단위 절삭)이 cron 표현식과 매칭되는지 */
+/** 当前时刻（截断到分钟）是否匹配 cron 表达式 */
 export function matchesCron(cron: string, now: Date): boolean {
   const parts = cron.trim().split(/\s+/);
   if (parts.length !== 5) return false;
@@ -72,18 +72,18 @@ export function matchesCron(cron: string, now: Date): boolean {
   );
 }
 
-// ── Scheduler 본체 ──
+// ── Scheduler 主逻辑 ──
 
 export class Scheduler {
   private table: ScheduleTable = EMPTY_TABLE;
   private intervalId: number | null = null;
-  private running = new Set<string>(); // 중복 실행 방지
+  private running = new Set<string>(); // 防止重复执行
   hostName: string;
 
   constructor(
     private app: App,
     private pluginDir: string,
-    private dailyNotePath: string, // e.g. "00_Area/01_시간축/일일_노트"
+    private dailyNotePath: string, // e.g. "00_Area/01_时间轴/每日笔记"
     hostName?: string,
   ) {
     this.hostName = hostName || (typeof require !== "undefined" ? require("os").hostname() : "unknown");
@@ -93,7 +93,7 @@ export class Scheduler {
     return path.join(this.pluginDir, "schedules.json");
   }
 
-  // ── 테이블 I/O ──
+  // ── 表读写 ──
 
   async load(): Promise<void> {
     try {
@@ -119,7 +119,7 @@ export class Scheduler {
     return this.table.schedules;
   }
 
-  /** schedules/{id}.md 에서 프롬프트 읽기 */
+  /** 从 schedules/{id}.md 读取 prompt */
   async loadPrompt(id: string): Promise<string> {
     const promptPath = this.relPath(`schedules/${id}.md`);
     try {
@@ -129,14 +129,14 @@ export class Scheduler {
     }
   }
 
-  /** schedules/ 폴더 초기화 + 템플릿 생성 */
+  /** 初始化 schedules/ 目录并生成模板 */
   async ensureSchedulesDir(): Promise<void> {
     const dir = this.relPath("schedules");
     const exists = await this.app.vault.adapter.exists(dir);
     if (!exists) {
       await this.app.vault.adapter.mkdir(dir);
     }
-    // 템플릿 파일
+    // 模板文件
     const tmplPath = this.relPath("schedules/_template.md");
     const tmplExists = await this.app.vault.adapter.exists(tmplPath);
     if (!tmplExists) {
@@ -148,7 +148,7 @@ export class Scheduler {
 
   async addEntry(entry: ScheduleEntry, promptContent?: string): Promise<void> {
     await this.load();
-    // 동일 id 덮어쓰기
+    // 相同 id 则覆盖
     const idx = this.table.schedules.findIndex((e) => e.id === entry.id);
     if (idx >= 0) {
       this.table.schedules[idx] = entry;
@@ -157,7 +157,7 @@ export class Scheduler {
     }
     await this.save();
 
-    // 프롬프트 파일 저장 (claude-prompt 액션일 때)
+    // 保存 prompt 文件（claude-prompt 操作时）
     if (promptContent) {
       await this.ensureSchedulesDir();
       const promptPath = this.relPath(`schedules/${entry.id}.md`);
@@ -176,7 +176,7 @@ export class Scheduler {
     this.table.schedules.splice(idx, 1);
     await this.save();
 
-    // 프롬프트 파일도 삭제 시도
+    // 同时尝试删除 prompt 文件
     try {
       const promptPath = this.relPath(`schedules/${entry.id}.md`);
       if (await this.app.vault.adapter.exists(promptPath)) {
@@ -202,10 +202,10 @@ export class Scheduler {
     }
   }
 
-  // ── Tick: 매분 cron 매칭 ──
+  // ── Tick: 每分钟 cron 匹配 ──
 
   private async tick(): Promise<void> {
-    await this.load(); // 외부 변경(Claude Code 스킬) 반영
+    await this.load(); // 反映外部变更（Claude Code skill）
 
     const now = new Date();
 
@@ -213,7 +213,7 @@ export class Scheduler {
       if (!entry.enabled) continue;
       if (this.running.has(entry.id)) continue;
 
-      // 같은 분에 중복 실행 방지
+      // 防止同一分钟内重复执行
       if (entry.lastRun) {
         const last = new Date(entry.lastRun);
         if (
@@ -233,7 +233,7 @@ export class Scheduler {
     }
   }
 
-  // ── 실행 ──
+  // ── 执行 ──
 
   async execute(entry: ScheduleEntry, now?: Date): Promise<string> {
     const ts = now ?? new Date();
@@ -247,7 +247,7 @@ export class Scheduler {
           const project = entry.actionInput?.project as string;
           const depth = (entry.actionInput?.depth as HubDepth) || "daily";
           if (!project) {
-            result = `[hub-generate] actionInput.project가 필요합니다`;
+            result = `[hub-generate] 需要 actionInput.project`;
             break;
           }
           const hubGen = new HubGenerator(this.app, this.hostName);
@@ -257,7 +257,7 @@ export class Scheduler {
         case "weekly-summary": {
           const project = entry.actionInput?.project as string;
           if (!project) {
-            result = `[weekly-summary] actionInput.project가 필요합니다`;
+            result = `[weekly-summary] 需要 actionInput.project`;
             break;
           }
           const hubGen = new HubGenerator(this.app, this.hostName);
@@ -267,7 +267,7 @@ export class Scheduler {
         case "monthly-summary": {
           const project = entry.actionInput?.project as string;
           if (!project) {
-            result = `[monthly-summary] actionInput.project가 필요합니다`;
+            result = `[monthly-summary] 需要 actionInput.project`;
             break;
           }
           const hubGen = new HubGenerator(this.app, this.hostName);
@@ -276,18 +276,18 @@ export class Scheduler {
         }
         case "claude-prompt":
         default: {
-          // 기존 동작: schedules/{id}.md 프롬프트 로드 → claude -p
+          // 默认行为：加载 schedules/{id}.md prompt 后执行 claude -p
           const prompt = await this.loadPrompt(entry.id);
           result = await this.runClaude(prompt);
           break;
         }
       }
 
-      // lastRun 갱신
+      // 更新 lastRun
       entry.lastRun = ts.toISOString();
       await this.save();
 
-      // 결과 출력
+      // 输出结果
       await this.writeResult(entry, result, ts);
 
       new Notice(`Schedule "${entry.name}" completed`);
@@ -328,7 +328,7 @@ export class Scheduler {
         }
       });
 
-      // 10분 타임아웃
+      // 10分钟超时
       setTimeout(() => {
         child.kill();
         reject(new Error("claude -p timed out (10min)"));
@@ -336,7 +336,7 @@ export class Scheduler {
     });
   }
 
-  // ── 결과 기록 ──
+  // ── 记录结果 ──
 
   private async writeResult(
     entry: ScheduleEntry,
@@ -369,12 +369,12 @@ export class Scheduler {
       const content = await this.app.vault.adapter.read(notePath);
       await this.app.vault.adapter.write(notePath, content + "\n" + section);
     } else {
-      // 일일노트가 없으면 최소 프론트매터로 생성
+      // 若每日笔记不存在，则用最小 frontmatter 创建
       const header = [
         "---",
         `created: ${dateStr}`,
         `updated: ${dateStr}`,
-        `tags: [일일노트]`,
+        `tags: [每日笔记]`,
         "---",
         "",
         `# ${dateStr}`,
@@ -391,28 +391,28 @@ export class Scheduler {
   }
 }
 
-// ── 프롬프트 템플릿 ──
+// ── Prompt 模板 ──
 
 const PROMPT_TEMPLATE = `# Schedule Prompt Template
 #
-# 이 파일을 복사하여 스케줄 ID와 동일한 이름으로 저장하세요.
-# 예: briefing-001.md
+# 复制此文件并以调度 ID 同名保存。
+# 例如：briefing-001.md
 #
-# 파일 전체 내용이 claude -p의 프롬프트로 전달됩니다.
-# 마크다운 형식 자유롭게 사용 가능합니다.
+# 文件全部内容将作为 claude -p 的 prompt 传入。
+# 可自由使用 Markdown 格式。
 
 ## Role
-당신은 옵시디언 볼트의 AI 어시스턴트입니다.
+你是 Obsidian Vault 的 AI 助手。
 
 ## Task
-<!-- 여기에 구체적인 지시사항을 작성하세요 -->
+<!-- 在此编写具体指令 -->
 
 ## Output Format
-- 한국어로 응답
-- 마크다운 형식
-- 핵심 내용 위주로 간결하게
+- 用中文回复
+- Markdown 格式
+- 简洁为主，聚焦核心内容
 
 ## Context
-<!-- 필요 시 추가 컨텍스트 -->
+<!-- 按需补充上下文 -->
 `;
 

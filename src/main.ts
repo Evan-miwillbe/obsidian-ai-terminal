@@ -41,13 +41,13 @@ export default class AITerminalPlugin extends Plugin {
     AITerminalPlugin.instance = this;
     await this.loadSettings();
 
-    // 터미널 뷰 등록
+    // 注册终端视图
     this.registerView(VIEW_TYPE_TERMINAL, (leaf) => {
       const preset = (leaf as any)._aiTerminalPreset as Preset | null || null;
       return new TerminalView(leaf, this.settings, this.pluginDir, preset);
     });
 
-    // 기본 터미널 열기 커맨드
+    // 默认打开终端命令
     this.addCommand({
       id: "open-terminal",
       name: "Open terminal",
@@ -69,18 +69,18 @@ export default class AITerminalPlugin extends Plugin {
       },
     });
 
-    // 프리셋별 커맨드 등록
+    // 注册预设命令
     this.registerPresetCommands();
 
-    // 설정 탭
+    // 设置面板
     this.addSettingTab(new AITerminalSettingTab(this.app, this));
 
-    // 리본 아이콘
+    // 侧边栏图标
     this.addRibbonIcon("terminal", "Open AI Terminal", () => {
       this.openTerminal(null);
     });
 
-    // Vault Index 커맨드
+    // Vault Index 命令
     this.addCommand({
       id: "dump-vault-index",
       name: "Dump vault index to JSON",
@@ -93,7 +93,7 @@ export default class AITerminalPlugin extends Plugin {
     // Watchdog + Context Pipe Server
     this.setupContextPipe();
 
-    // 자동 Vault Index 덤프
+    // 自动 Vault Index 导出
     this.setupVaultIndexAutoSync();
 
     // Rule Sync
@@ -102,13 +102,13 @@ export default class AITerminalPlugin extends Plugin {
     // Schema Map
     this.setupSchemaMap();
 
-    // 로드맵 뷰
+    // 路线图视图
     this.setupRoadmap();
 
-    // 스케줄러
+    // 调度器
     this.setupScheduler();
 
-    // 스케줄러 커맨드
+    // 调度器命令
     this.addCommand({
       id: "list-schedules",
       name: "List schedules",
@@ -149,7 +149,7 @@ export default class AITerminalPlugin extends Plugin {
       },
     });
 
-    // Rule Sync 커맨드
+    // Rule Sync 命令
     this.addCommand({
       id: "force-sync-rules",
       name: "Force sync all rules",
@@ -158,7 +158,7 @@ export default class AITerminalPlugin extends Plugin {
           new Notice("Rule Sync is disabled");
           return;
         }
-        new Notice("Rule Sync: 강제 동기화 시작...");
+        new Notice("Rule Sync: 强制同步开始...");
         await this.ruleSync.syncAll(true);
       },
     });
@@ -179,11 +179,11 @@ export default class AITerminalPlugin extends Plugin {
           results.push(...await this.ruleSync.syncClaudeProfiles());
         }
         const deployed = results.filter((r) => r.action === "auto-deploy" || r.action === "confirm-deploy");
-        new Notice(`Claude rules: ${deployed.length}개 배포`);
+        new Notice(`Claude rules: ${deployed.length} 条已部署`);
       },
     });
 
-    // Context Sync 커맨드
+    // Context Sync 命令
     this.addCommand({
       id: "generate-sync-script",
       name: "Generate context sync script",
@@ -201,13 +201,13 @@ export default class AITerminalPlugin extends Plugin {
       },
     });
 
-    // ── 볼트 쿼리 커맨드 ──
+    // ── Vault 查询命令 ──
 
     this.addCommand({
       id: "vault-search",
       name: "Search vault (/search)",
       callback: () => {
-        const input = window.prompt("검색어 (tag:태그 또는 키워드):");
+        const input = window.prompt("搜索词 (tag:标签 或 关键词):");
         if (!input) return;
         const result = searchVault(this.app, input.trim());
         const output = formatQueryResult(result);
@@ -215,7 +215,7 @@ export default class AITerminalPlugin extends Plugin {
           new Notice(
             result.results.length > 0
               ? result.results.map((r) => r.name).join("\n")
-              : "검색 결과 없음",
+              : "无搜索结果",
             10_000,
           );
         }
@@ -233,7 +233,7 @@ export default class AITerminalPlugin extends Plugin {
             new Notice(
               result.results.length > 0
                 ? `Backlinks: ${result.results.map((r) => r.name).join(", ")}`
-                : "백링크 없음",
+                : "无反向链接",
               10_000,
             );
           }
@@ -252,7 +252,7 @@ export default class AITerminalPlugin extends Plugin {
             new Notice(
               result.results.length > 0
                 ? `Links: ${result.results.map((r) => r.name).join(", ")}`
-                : "링크 없음",
+                : "无链接",
               10_000,
             );
           }
@@ -260,53 +260,53 @@ export default class AITerminalPlugin extends Plugin {
       },
     });
 
-    // ACP 에이전트 호출 커맨드
+    // ACP 代理调用命令
     this.addCommand({
       id: "acp-invoke-agent",
       name: "Invoke AI agent (ACP)",
       callback: async () => {
         if (!this.acpLayer) {
-          new Notice("ACP가 초기화되지 않았습니다");
+          new Notice("ACP 尚未初始化");
           return;
         }
         const agents = this.acpLayer.getAgents().filter((a) => a.available);
         if (agents.length === 0) {
-          new Notice("사용 가능한 에이전트가 없습니다 (claude, codex, gemini 중 하나를 설치하세요)");
+          new Notice("没有可用的代理（请安装 claude、codex 或 gemini 之一）");
           return;
         }
 
         const agentNames = agents.map((a) => a.name).join(", ");
-        const input = window.prompt(`에이전트에 보낼 프롬프트:\n(사용 가능: ${agentNames})`);
+        const input = window.prompt(`发送给代理的提示词:\n（可用: ${agentNames}）`);
         if (!input) return;
 
-        // 첫 번째 사용 가능한 에이전트에 전달
+        // 传递给第一个可用的代理
         const agent = agents[0];
-        new Notice(`${agent.name}에 전달 중...`);
+        new Notice(`正在传递给 ${agent.name}...`);
 
         try {
           const result = await this.acpLayer.invoke(agent.id, input);
           if (result.status === "completed") {
-            // 결과를 터미널에 출력
+            // 将结果输出到终端
             this.writeToActiveTerminal(
               `\r\n\x1b[36m[${agent.name}]\x1b[0m\r\n${result.result}\r\n`,
             );
-            new Notice(`${agent.name} 완료`);
+            new Notice(`${agent.name} 完成`);
           } else {
-            new Notice(`${agent.name} 실패: ${result.error}`);
+            new Notice(`${agent.name} 失败: ${result.error}`);
           }
         } catch (err: any) {
-          new Notice(`에이전트 호출 실패: ${err.message}`);
+          new Notice(`代理调用失败: ${err.message}`);
         }
       },
     });
 
-    // /ot 커맨드 — 자연어 스케줄 등록
+    // /ot 命令 — 自然语言注册定时任务
     this.addCommand({
       id: "ot-schedule",
       name: "Register schedule with natural language (/ot)",
       callback: () => {
         if (!this.scheduler) {
-          // scheduler가 비활성이면 임시 생성
+          // 若调度器未启用则临时创建
           this.scheduler = new Scheduler(
             this.app,
             this.pluginDir,
@@ -370,7 +370,7 @@ export default class AITerminalPlugin extends Plugin {
     }
   }
 
-  /** 활성 터미널 뷰의 xterm에 텍스트 출력 */
+  /** 向活动终端视图的 xterm 输出文本 */
   private writeToActiveTerminal(text: string): boolean {
     const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_TERMINAL);
     if (leaves.length === 0) return false;
@@ -485,10 +485,10 @@ export default class AITerminalPlugin extends Plugin {
   }
 
   private setupContextPipe(): void {
-    // Watchdog: 볼트 변경 감지 + 컨텍스트 인덱스
+    // Watchdog: Vault 变更检测 + 上下文索引
     this.watchdog = new Watchdog(this.app);
 
-    // 활성 노트 변경 추적
+    // 活动笔记变更追踪
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", (leaf) => {
         const file = leaf?.view?.getState?.()?.file;
@@ -496,22 +496,22 @@ export default class AITerminalPlugin extends Plugin {
       }),
     );
 
-    // 파일 변경 시 인덱스 갱신 (디바운스)
+    // 文件变更时刷新索引（防抖）
     const debouncedRebuild = debounce(() => this.watchdog?.rebuild(), 2000, true);
     this.registerEvent(
       this.app.metadataCache.on("changed", () => debouncedRebuild()),
     );
 
-    // 초기 빌드
+    // 初始构建
     this.app.metadataCache.on("resolved", () => {
       this.watchdog?.rebuild();
     });
 
     // ACP Layer
     this.acpLayer = new AcpLayer(this.app, this.watchdog);
-    this.acpLayer.checkAvailability(); // 비동기, 백그라운드 실행
+    this.acpLayer.checkAvailability(); // 异步，后台执行
 
-    // Named Pipe Server 시작
+    // 启动 Named Pipe Server
     this.pipeServer = new ContextPipeServer(this.watchdog, this.app);
     this.pipeServer.setAcpLayer(this.acpLayer);
     this.pipeServer.setTerminalViewGetter(() => {
@@ -521,7 +521,7 @@ export default class AITerminalPlugin extends Plugin {
     try {
       this.pipeServer.start();
     } catch (err) {
-      console.error("Context Pipe Server 시작 실패:", err);
+      console.error("Context Pipe Server 启动失败:", err);
     }
   }
 
@@ -534,12 +534,12 @@ export default class AITerminalPlugin extends Plugin {
       true
     );
 
-    // 캐시 완전 로드 후 최초 덤프
+    // 缓存完全加载后首次导出
     this.app.metadataCache.on("resolved", () => {
       dumpVaultIndex(this.app, this.settings.vaultIndexPath);
     });
 
-    // 파일 변경 시 디바운스 덤프
+    // 文件变更时防抖导出
     this.registerEvent(
       this.app.metadataCache.on("changed", () => debouncedDump())
     );

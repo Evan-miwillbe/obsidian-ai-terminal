@@ -1,6 +1,6 @@
 import { App, TFile, FuzzyMatch, FuzzySuggestModal } from "obsidian";
 
-// ── ANSI 색상 ──
+// ── ANSI 颜色 ──
 
 const ANSI = {
   reset: "\x1b[0m",
@@ -14,7 +14,7 @@ const ANSI = {
   gray: "\x1b[90m",
 } as const;
 
-// ── 쿼리 결과 타입 ──
+// ── 查询结果类型 ──
 
 export interface QueryResult {
   query: string;
@@ -26,21 +26,21 @@ export interface QueryResult {
 interface ResultEntry {
   name: string;
   path: string;
-  context?: string; // 매칭 컨텍스트 (tag, heading 등)
+  context?: string; // 匹配上下文 (tag, heading 等)
 }
 
-// ── 쿼리 함수들 ──
+// ── 查询函数 ──
 
 /**
- * /search — 태그, 제목, 프론트매터로 검색
- * 형식: /search tag:재고실사 | /search 키워드
+ * /search — 按标签、标题、frontmatter 搜索
+ * 格式: /search tag:재고실사 | /search 关键词
  */
 export function searchVault(app: App, query: string): QueryResult {
   const start = performance.now();
   const results: ResultEntry[] = [];
   const files = app.vault.getMarkdownFiles();
 
-  // tag: 접두사 처리
+  // tag: 前缀处理
   const tagMatch = query.match(/^tag:(.+)/i);
 
   if (tagMatch) {
@@ -72,7 +72,7 @@ export function searchVault(app: App, query: string): QueryResult {
       }
     }
   } else {
-    // 일반 키워드 검색: 제목 + heading + aliases
+    // 普通关键词搜索: 标题 + heading + aliases
     const searchLower = query.toLowerCase();
 
     for (const file of files) {
@@ -127,19 +127,19 @@ export function searchVault(app: App, query: string): QueryResult {
 }
 
 /**
- * /backlinks — 특정 노트를 가리키는 모든 노트
+ * /backlinks — 指向特定笔记的所有笔记
  */
 export function queryBacklinks(app: App, noteName: string): QueryResult {
   const start = performance.now();
   const results: ResultEntry[] = [];
 
-  // 대상 노트 찾기
+  // 查找目标笔记
   const targetFile = app.metadataCache.getFirstLinkpathDest(noteName, "");
   if (!targetFile) {
     return { query: noteName, type: "backlinks", results: [], elapsed: performance.now() - start };
   }
 
-  // resolvedLinks에서 역추적
+  // 从 resolvedLinks 反向追踪
   const resolved = app.metadataCache.resolvedLinks;
   for (const sourcePath in resolved) {
     if (resolved[sourcePath][targetFile.path]) {
@@ -162,13 +162,13 @@ export function queryBacklinks(app: App, noteName: string): QueryResult {
 }
 
 /**
- * /links — 특정 노트에서 나가는 모든 링크
+ * /links — 从特定笔记出发的所有链接
  */
 export function queryLinks(app: App, noteName: string): QueryResult {
   const start = performance.now();
   const results: ResultEntry[] = [];
 
-  // 대상 노트 찾기
+  // 查找目标笔记
   const targetFile = app.metadataCache.getFirstLinkpathDest(noteName, "");
   if (!targetFile) {
     return { query: noteName, type: "links", results: [], elapsed: performance.now() - start };
@@ -199,7 +199,7 @@ export function queryLinks(app: App, noteName: string): QueryResult {
   };
 }
 
-// ── ANSI 포맷 ──
+// ── ANSI 格式化 ──
 
 export function formatQueryResult(result: QueryResult): string {
   const lines: string[] = [];
@@ -236,7 +236,7 @@ export function formatQueryResult(result: QueryResult): string {
   return lines.join("\r\n");
 }
 
-// ── 노트 선택 모달 ──
+// ── 笔记选择弹窗 ──
 
 export class NoteSuggestModal extends FuzzySuggestModal<TFile> {
   private onChoose: (file: TFile) => void;
@@ -244,7 +244,7 @@ export class NoteSuggestModal extends FuzzySuggestModal<TFile> {
   constructor(app: App, onChoose: (file: TFile) => void) {
     super(app);
     this.onChoose = onChoose;
-    this.setPlaceholder("노트 이름을 입력하세요...");
+    this.setPlaceholder("请输入笔记名称...");
   }
 
   getItems(): TFile[] {

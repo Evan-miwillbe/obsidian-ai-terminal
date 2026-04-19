@@ -5,10 +5,10 @@ import { Watchdog, type ContextIndex } from "./watchdog";
 import type { AcpLayer } from "./acpLayer";
 import type { TerminalView } from "./TerminalView";
 
-// ── Named Pipe / Unix Socket 서버 ──
-// 터미널 세션 및 외부 에이전트가 연결하여 볼트 컨텍스트를 받아가는 서버
+// ── Named Pipe / Unix Socket 服务器 ──
+// 终端会话及外部代理连接以获取仓库上下文的服务器
 //
-// 프로토콜: 줄 단위 JSON-RPC 2.0 (MCP 호환 형식)
+// 协议: 逐行 JSON-RPC 2.0 (MCP 兼容格式)
 // Windows: \\.\pipe\obsidian-ai-terminal
 // Unix:    /tmp/obsidian-ai-terminal.sock
 
@@ -20,7 +20,7 @@ export function getPipePath(): string {
     : "/tmp/obsidian-ai-terminal.sock";
 }
 
-// ── JSON-RPC 요청/응답 ──
+// ── JSON-RPC 请求/响应 ──
 
 interface JsonRpcRequest {
   jsonrpc: "2.0";
@@ -50,12 +50,12 @@ export class ContextPipeServer {
     this.app = app;
   }
 
-  /** ACP 레이어 연결 */
+  /** ACP 层连接 */
   setAcpLayer(acp: AcpLayer): void {
     this.acpLayer = acp;
   }
 
-  /** 터미널 뷰 접근 콜백 설정 */
+  /** 终端视图访问回调设置 */
   setTerminalViewGetter(getter: () => TerminalView | null): void {
     this.getTerminalView = getter;
   }
@@ -64,11 +64,11 @@ export class ContextPipeServer {
     return getPipePath();
   }
 
-  /** 서버 시작 */
+  /** 服务器启动 */
   start(): void {
     if (this.server) return;
 
-    // Unix: 기존 소켓 파일 제거
+    // Unix: 移除已有 socket 文件
     if (!isWindows) {
       try { fs.unlinkSync(this.pipePath); } catch { /* ignore */ }
     }
@@ -81,7 +81,7 @@ export class ContextPipeServer {
       socket.on("data", (data) => {
         buffer += data.toString("utf-8");
 
-        // 줄 단위로 파싱
+        // 逐行解析
         let newlineIdx: number;
         while ((newlineIdx = buffer.indexOf("\n")) >= 0) {
           const line = buffer.slice(0, newlineIdx).trim();
@@ -114,14 +114,14 @@ export class ContextPipeServer {
     });
 
     this.server.listen(this.pipePath, () => {
-      // Named Pipe 서버 시작됨
+      // Named Pipe 服务器已启动
     });
 
     this.server.on("error", (err) => {
       console.error("ContextPipeServer error:", err);
     });
 
-    // watchdog 변경 시 구독 중인 클라이언트에 알림
+    // watchdog 变更时通知已订阅的客户端
     this.unsubscribe = this.watchdog.onIndexChange((index) => {
       this.broadcastNotification("vault/changed", {
         timestamp: index.timestamp,
@@ -131,7 +131,7 @@ export class ContextPipeServer {
     });
   }
 
-  /** 서버 정지 */
+  /** 服务器停止 */
   stop(): void {
     this.unsubscribe?.();
     this.unsubscribe = null;
@@ -146,7 +146,7 @@ export class ContextPipeServer {
       this.server = null;
     }
 
-    // Unix: 소켓 파일 정리
+    // Unix: 清理 socket 文件
     if (!isWindows) {
       try { fs.unlinkSync(this.pipePath); } catch { /* ignore */ }
     }
@@ -156,13 +156,13 @@ export class ContextPipeServer {
     return this.server !== null;
   }
 
-  // ── 요청 핸들러 ──
+  // ── 请求处理器 ──
 
   private handleRequest(request: JsonRpcRequest, socket: net.Socket): JsonRpcResponse | null {
     const { method, id, params } = request;
 
     switch (method) {
-      // 초기화
+      // 初始化
       case "initialize":
         return {
           jsonrpc: "2.0", id,
@@ -179,59 +179,59 @@ export class ContextPipeServer {
           },
         };
 
-      // 현재 컨텍스트 전체 가져오기
+      // 获取当前完整上下文
       case "context/get":
         return {
           jsonrpc: "2.0", id,
           result: this.watchdog.currentIndex,
         };
 
-      // 활성 노트 컨텍스트만
+      // 仅获取活动笔记上下文
       case "context/activeNote":
         return {
           jsonrpc: "2.0", id,
           result: this.watchdog.currentIndex.activeNote,
         };
 
-      // 프로젝트 허브 목록
+      // 项目 Hub 列表
       case "context/hubs":
         return {
           jsonrpc: "2.0", id,
           result: this.watchdog.currentIndex.projectHubs,
         };
 
-      // 최근 수정 노트
+      // 最近修改的笔记
       case "context/recent":
         return {
           jsonrpc: "2.0", id,
           result: this.watchdog.currentIndex.recentNotes,
         };
 
-      // 특정 노트 읽기
+      // 读取指定笔记
       case "vault/read": {
         const notePath = params?.path;
         if (!notePath) {
-          return { jsonrpc: "2.0", id, error: { code: -32602, message: "path 필수" } };
+          return { jsonrpc: "2.0", id, error: { code: -32602, message: "path 为必填项" } };
         }
-        // 비동기 응답은 직접 socket에 씀
+        // 异步响应直接写入 socket
         this.handleVaultRead(id, notePath, socket);
-        return null; // 비동기 처리
+        return null; // 异步处理
       }
 
-      // 변경 알림 구독 (연결이 유지되는 동안 자동 알림)
+      // 订阅变更通知 (连接保持期间自动通知)
       case "notifications/initialized":
-        return null; // 알림은 응답 없음
+        return null; // 通知无需响应
 
-      // ── Obsidian 제어 메서드 ──
+      // ── Obsidian 控制方法 ──
 
       case "obsidian/openNote": {
         const notePath = params?.path;
         if (!notePath) {
-          return { jsonrpc: "2.0", id, error: { code: -32602, message: "path 필수" } };
+          return { jsonrpc: "2.0", id, error: { code: -32602, message: "path 为必填项" } };
         }
         const file = this.app.vault.getAbstractFileByPath(notePath);
         if (!file || !(file instanceof TFile)) {
-          return { jsonrpc: "2.0", id, error: { code: -32000, message: `파일 없음: ${notePath}` } };
+          return { jsonrpc: "2.0", id, error: { code: -32000, message: `文件不存在: ${notePath}` } };
         }
         this.app.workspace.getLeaf(false).openFile(file);
         return { jsonrpc: "2.0", id, result: { opened: notePath } };
@@ -240,7 +240,7 @@ export class ContextPipeServer {
       case "obsidian/executeCommand": {
         const commandId = params?.id;
         if (!commandId) {
-          return { jsonrpc: "2.0", id, error: { code: -32602, message: "id 필수" } };
+          return { jsonrpc: "2.0", id, error: { code: -32602, message: "id 为必填项" } };
         }
         try {
           (this.app as any).commands.executeCommandById(commandId);
@@ -259,20 +259,20 @@ export class ContextPipeServer {
         const writePath = params?.path;
         const content = params?.content;
         if (!writePath || content === undefined) {
-          return { jsonrpc: "2.0", id, error: { code: -32602, message: "path, content 필수" } };
+          return { jsonrpc: "2.0", id, error: { code: -32602, message: "path, content 为必填项" } };
         }
         this.handleVaultWrite(id, writePath, content, socket);
-        return null; // 비동기
+        return null; // 异步
       }
 
       case "terminal/sendKeys": {
         const keys = params?.keys;
         if (!keys) {
-          return { jsonrpc: "2.0", id, error: { code: -32602, message: "keys 필수" } };
+          return { jsonrpc: "2.0", id, error: { code: -32602, message: "keys 为必填项" } };
         }
         const tv = this.getTerminalView?.();
         if (!tv) {
-          return { jsonrpc: "2.0", id, error: { code: -32000, message: "터미널 뷰가 열려있지 않음" } };
+          return { jsonrpc: "2.0", id, error: { code: -32000, message: "终端视图未打开" } };
         }
         tv.sendKeys(keys);
         return { jsonrpc: "2.0", id, result: { sent: true, length: keys.length } };
@@ -281,17 +281,17 @@ export class ContextPipeServer {
       case "terminal/output": {
         const text = params?.text;
         if (!text) {
-          return { jsonrpc: "2.0", id, error: { code: -32602, message: "text 필수" } };
+          return { jsonrpc: "2.0", id, error: { code: -32602, message: "text 为必填项" } };
         }
         const termView = this.getTerminalView?.();
         if (!termView) {
-          return { jsonrpc: "2.0", id, error: { code: -32000, message: "터미널 뷰가 열려있지 않음" } };
+          return { jsonrpc: "2.0", id, error: { code: -32000, message: "终端视图未打开" } };
         }
         termView.writeOutput(text);
         return { jsonrpc: "2.0", id, result: { written: true } };
       }
 
-      // ── ACP: 에이전트 관련 메서드 ──
+      // ── ACP: 代理相关方法 ──
 
       case "agent/list":
         if (!this.acpLayer) {
@@ -310,9 +310,9 @@ export class ContextPipeServer {
         }
         const { agentId, prompt, cwd } = params || {};
         if (!agentId || !prompt) {
-          return { jsonrpc: "2.0", id, error: { code: -32602, message: "agentId, prompt 필수" } };
+          return { jsonrpc: "2.0", id, error: { code: -32602, message: "agentId, prompt 为必填项" } };
         }
-        // 비동기 처리
+        // 异步处理
         this.handleAgentInvoke(id, agentId, prompt, cwd, socket);
         return null;
       }
@@ -340,7 +340,7 @@ export class ContextPipeServer {
         }
         const cancelId = params?.invocationId;
         if (!cancelId) {
-          return { jsonrpc: "2.0", id, error: { code: -32602, message: "invocationId 필수" } };
+          return { jsonrpc: "2.0", id, error: { code: -32602, message: "invocationId 为必填项" } };
         }
         const cancelled = this.acpLayer.cancel(cancelId);
         return { jsonrpc: "2.0", id, result: { cancelled } };
@@ -364,7 +364,7 @@ export class ContextPipeServer {
     socket: net.Socket,
   ): Promise<void> {
     try {
-      const app = this.watchdog["app"]; // Watchdog의 app 접근
+      const app = this.watchdog["app"]; // 访问 Watchdog 的 app
       const content = await app.vault.adapter.read(notePath);
       const response: JsonRpcResponse = {
         jsonrpc: "2.0", id,
@@ -374,7 +374,7 @@ export class ContextPipeServer {
     } catch (err: any) {
       const response: JsonRpcResponse = {
         jsonrpc: "2.0", id,
-        error: { code: -32000, message: `읽기 실패: ${err.message}` },
+        error: { code: -32000, message: `读取失败: ${err.message}` },
       };
       socket.write(JSON.stringify(response) + "\n");
     }
@@ -387,7 +387,7 @@ export class ContextPipeServer {
     socket: net.Socket,
   ): Promise<void> {
     try {
-      // 디렉토리 확보
+      // 确保目录存在
       const dir = filePath.substring(0, filePath.lastIndexOf("/"));
       if (dir) {
         const dirExists = await this.app.vault.adapter.exists(dir);
@@ -437,7 +437,7 @@ export class ContextPipeServer {
     }
   }
 
-  // ── 브로드캐스트 ──
+  // ── 广播 ──
 
   private broadcastNotification(method: string, params: any): void {
     const message = JSON.stringify({

@@ -2,44 +2,44 @@ import { App, Modal, Notice, Setting } from "obsidian";
 import { Scheduler, type ScheduleEntry, type ScheduleAction } from "./scheduler";
 import { spawn } from "child_process";
 
-// ── /ot 모달: 자연어 → cron 스케줄 등록 ──
+// ── /ot 模态框: 自然语言 → cron 计划注册 ──
 
 interface ParsedSchedule {
   name: string;
   cron: string;
   action: ScheduleAction;
-  prompt: string; // claude-prompt 액션일 때 사용
+  prompt: string; // claude-prompt 动作时使用
   output: "daily-note" | "notice" | "none";
 }
 
-/** claude -p로 자연어를 구조화된 스케줄로 파싱 */
+/** 通过 claude -p 将自然语言解析为结构化计划 */
 function parseWithClaude(input: string, vaultPath: string): Promise<ParsedSchedule> {
-  const systemPrompt = `당신은 자연어 스케줄 요청을 JSON으로 변환하는 파서입니다.
+  const systemPrompt = `你是一个将自然语言计划请求转换为 JSON 的解析器。
 
-입력: 사용자의 자연어 스케줄 요청
-출력: 정확히 아래 JSON만 출력 (마크다운 코드블록 없이, 순수 JSON만)
+输入: 用户的自然语言计划请求
+输出: 仅输出以下 JSON (无 markdown 代码块, 纯 JSON)
 
 {
-  "name": "스케줄 이름 (한국어, 간결하게)",
-  "cron": "분 시 일 월 요일",
+  "name": "计划名称 (中文, 简洁)",
+  "cron": "分 时 日 月 星期",
   "action": "claude-prompt",
-  "prompt": "claude -p에 전달할 프롬프트 (한국어, 구체적으로)",
+  "prompt": "传递给 claude -p 的 prompt (中文, 具体明确)",
   "output": "daily-note"
 }
 
-규칙:
-- cron은 5필드 (분 시 일 월 요일)
-- "매일 아침 7시" → "0 7 * * *"
-- "평일 아침 9시" → "0 9 * * 1-5"
-- "매주 월요일 8시" → "0 8 * * 1"
-- "매월 1일 7시" → "0 7 1 * *"
-- action은 항상 "claude-prompt" (다른 액션은 사용자가 직접 설정)
-- output은 기본 "daily-note"
-- prompt는 사용자 요청을 구체적인 AI 지시문으로 변환
-- JSON만 출력. 설명 텍스트 없음.`;
+规则:
+- cron 为 5 个字段 (分 时 日 月 星期)
+- "每天早上 7 点" → "0 7 * * *"
+- "工作日早上 9 点" → "0 9 * * 1-5"
+- "每周一 8 点" → "0 8 * * 1"
+- "每月 1 号 7 点" → "0 7 1 * *"
+- action 始终为 "claude-prompt" (其他动作由用户自行设置)
+- output 默认为 "daily-note"
+- prompt 应将用户请求转换为具体的 AI 指令
+- 仅输出 JSON, 无解释文本。`;
 
   return new Promise((resolve, reject) => {
-    const child = spawn("claude", ["-p", `${systemPrompt}\n\n사용자 입력: ${input}`], {
+    const child = spawn("claude", ["-p", `${systemPrompt}\n\n用户输入: ${input}`], {
       cwd: vaultPath,
       env: { ...process.env },
       stdio: ["pipe", "pipe", "pipe"],
@@ -56,7 +56,7 @@ function parseWithClaude(input: string, vaultPath: string): Promise<ParsedSchedu
     });
 
     child.on("error", () =>
-      reject(new Error("claude CLI를 찾을 수 없습니다. Claude Code가 설치되어 있는지 확인하세요."))
+      reject(new Error("找不到 claude CLI, 请确认已安装 Claude Code。"))
     );
 
     child.on("close", (code) => {
@@ -66,16 +66,16 @@ function parseWithClaude(input: string, vaultPath: string): Promise<ParsedSchedu
       }
 
       try {
-        // JSON 추출 (마크다운 코드블록이 올 수도 있음)
+        // 提取 JSON (可能包含 markdown 代码块)
         let jsonStr = stdout.trim();
         const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
         if (jsonMatch) jsonStr = jsonMatch[0];
 
         const parsed = JSON.parse(jsonStr) as ParsedSchedule;
 
-        // 필수 필드 검증
+        // 必填字段验证
         if (!parsed.name || !parsed.cron || !parsed.prompt) {
-          reject(new Error("파싱 결과에 필수 필드가 누락되었습니다"));
+          reject(new Error("解析结果中缺少必填字段"));
           return;
         }
 
@@ -83,14 +83,14 @@ function parseWithClaude(input: string, vaultPath: string): Promise<ParsedSchedu
         parsed.output = parsed.output || "daily-note";
         resolve(parsed);
       } catch (e) {
-        reject(new Error(`JSON 파싱 실패: ${stdout.trim().slice(0, 200)}`));
+        reject(new Error(`JSON 解析失败: ${stdout.trim().slice(0, 200)}`));
       }
     });
 
-    // 30초 타임아웃
+    // 30 秒超时
     setTimeout(() => {
       child.kill();
-      reject(new Error("claude -p 파싱 타임아웃 (30초)"));
+      reject(new Error("claude -p 解析超时 (30秒)"));
     }, 30_000);
   });
 }
@@ -101,7 +101,7 @@ function generateId(): string {
   return `ot-${ts}-${rand}`;
 }
 
-// ── OT 모달 ──
+// ── OT 模态框 ──
 
 export class OtModal extends Modal {
   private scheduler: Scheduler;
@@ -119,18 +119,18 @@ export class OtModal extends Modal {
     contentEl.empty();
     contentEl.addClass("ot-modal");
 
-    contentEl.createEl("h2", { text: "스케줄 등록 (/ot)" });
+    contentEl.createEl("h2", { text: "注册计划 (/ot)" });
     contentEl.createEl("p", {
-      text: "자연어로 스케줄을 설명하면, AI가 cron 표현식으로 변환하여 등록합니다.",
+      text: "用自然语言描述计划, AI 将自动转换为 cron 表达式并注册。",
       cls: "setting-item-description",
     });
 
-    // 입력 영역
+    // 输入区域
     const inputContainer = contentEl.createDiv({ cls: "ot-input-container" });
     this.inputEl = inputContainer.createEl("textarea", {
       cls: "ot-input",
       attr: {
-        placeholder: "예: 매일 아침 7시에 어제 수정된 노트 요약해줘\n예: 평일 9시에 프로젝트 진행상황 브리핑\n예: 매주 월요일에 지난주 작업 정리",
+        placeholder: "例如: 每天早上 7 点总结昨天修改的笔记\n例如: 工作日 9 点进行项目进度简报\n例如: 每周一整理上周工作",
         rows: "4",
       },
     });
@@ -140,7 +140,7 @@ export class OtModal extends Modal {
     this.inputEl.style.fontSize = "14px";
     this.inputEl.style.padding = "8px";
 
-    // 예시 버튼들
+    // 示例按钮
     const examples = contentEl.createDiv({ cls: "ot-examples" });
     examples.style.marginBottom = "12px";
     examples.style.display = "flex";
@@ -148,9 +148,9 @@ export class OtModal extends Modal {
     examples.style.flexWrap = "wrap";
 
     const exampleTexts = [
-      "매일 아침 8시에 어제 수정된 노트 요약",
-      "평일 9시에 프로젝트 브리핑",
-      "매주 월요일 7시에 주간 작업 정리",
+      "每天早上 8 点总结昨天修改的笔记",
+      "工作日 9 点进行项目简报",
+      "每周一 7 点整理上周工作",
     ];
 
     for (const ex of exampleTexts) {
@@ -163,38 +163,38 @@ export class OtModal extends Modal {
       });
     }
 
-    // 결과 미리보기 영역
+    // 结果预览区域
     const previewEl = contentEl.createDiv({ cls: "ot-preview" });
     previewEl.style.display = "none";
 
-    // 상태 표시
+    // 状态显示
     const statusEl = contentEl.createDiv({ cls: "ot-status" });
     statusEl.style.marginTop = "8px";
     statusEl.style.fontSize = "12px";
     statusEl.style.color = "var(--text-muted)";
 
-    // 버튼들
+    // 按钮区域
     const buttonContainer = contentEl.createDiv({ cls: "ot-buttons" });
     buttonContainer.style.display = "flex";
     buttonContainer.style.gap = "8px";
     buttonContainer.style.justifyContent = "flex-end";
     buttonContainer.style.marginTop = "16px";
 
-    // 파싱 버튼
+    // 解析按钮
     const parseBtn = buttonContainer.createEl("button", {
-      text: "파싱",
+      text: "解析",
       cls: "mod-cta",
     });
 
-    // 등록 버튼 (파싱 후 표시)
+    // 注册按钮 (解析后显示)
     const registerBtn = buttonContainer.createEl("button", {
-      text: "등록",
+      text: "注册",
       cls: "mod-cta",
     });
     registerBtn.style.display = "none";
 
-    // 즉시 테스트 버튼
-    const testBtn = buttonContainer.createEl("button", { text: "테스트 실행" });
+    // 立即测试按钮
+    const testBtn = buttonContainer.createEl("button", { text: "测试运行" });
     testBtn.style.display = "none";
 
     let parsed: ParsedSchedule | null = null;
@@ -202,32 +202,32 @@ export class OtModal extends Modal {
     parseBtn.addEventListener("click", async () => {
       const input = this.inputEl?.value.trim();
       if (!input) {
-        new Notice("스케줄 내용을 입력하세요");
+        new Notice("请输入计划内容");
         return;
       }
 
-      statusEl.textContent = "AI가 파싱 중...";
+      statusEl.textContent = "AI 正在解析...";
       statusEl.style.color = "var(--text-accent)";
       parseBtn.disabled = true;
 
       try {
         parsed = await parseWithClaude(input, this.vaultPath);
 
-        // 미리보기 표시
+        // 显示预览
         previewEl.style.display = "block";
         previewEl.empty();
-        previewEl.createEl("h4", { text: "파싱 결과" });
+        previewEl.createEl("h4", { text: "解析结果" });
 
         const table = previewEl.createEl("table");
         table.style.width = "100%";
         table.style.fontSize = "13px";
 
         const rows: [string, string][] = [
-          ["이름", parsed.name],
+          ["名称", parsed.name],
           ["Cron", `${parsed.cron} (${describeCron(parsed.cron)})`],
-          ["액션", parsed.action],
-          ["출력", parsed.output],
-          ["프롬프트", parsed.prompt.slice(0, 100) + (parsed.prompt.length > 100 ? "..." : "")],
+          ["动作", parsed.action],
+          ["输出", parsed.output],
+          ["Prompt", parsed.prompt.slice(0, 100) + (parsed.prompt.length > 100 ? "..." : "")],
         ];
 
         for (const [label, value] of rows) {
@@ -239,13 +239,13 @@ export class OtModal extends Modal {
           tr.createEl("td", { text: value }).style.padding = "4px 8px";
         }
 
-        statusEl.textContent = "파싱 완료. 확인 후 등록하세요.";
+        statusEl.textContent = "解析完成, 确认后点击注册。";
         statusEl.style.color = "var(--text-success)";
 
         registerBtn.style.display = "inline-block";
         testBtn.style.display = "inline-block";
       } catch (err: any) {
-        statusEl.textContent = `파싱 실패: ${err.message}`;
+        statusEl.textContent = `解析失败: ${err.message}`;
         statusEl.style.color = "var(--text-error)";
         parsed = null;
       } finally {
@@ -272,24 +272,24 @@ export class OtModal extends Modal {
       const promptContent = parsed.action === "claude-prompt" ? parsed.prompt : undefined;
       await this.scheduler.addEntry(entry, promptContent);
 
-      new Notice(`스케줄 등록 완료: "${parsed.name}" [${parsed.cron}]`);
+      new Notice(`计划注册成功: "${parsed.name}" [${parsed.cron}]`);
       this.close();
     });
 
     testBtn.addEventListener("click", async () => {
       if (!parsed) return;
 
-      statusEl.textContent = "테스트 실행 중...";
+      statusEl.textContent = "正在测试运行...";
       statusEl.style.color = "var(--text-accent)";
       testBtn.setAttribute("disabled", "true");
 
       try {
-        // 임시 엔트리로 즉시 실행
+        // 使用临时条目立即执行
         const tempEntry: ScheduleEntry = {
           id: `test-${Date.now()}`,
           name: parsed.name,
           cron: parsed.cron,
-          output: "notice", // 테스트는 notice로
+          output: "notice", // 测试使用 notice 输出
           enabled: true,
           lastRun: null,
           createdAt: new Date().toISOString(),
@@ -297,7 +297,7 @@ export class OtModal extends Modal {
           action: parsed.action,
         };
 
-        // 테스트용 프롬프트 임시 저장
+        // 临时保存测试用 prompt
         if (parsed.action === "claude-prompt") {
           await this.scheduler.ensureSchedulesDir();
           const promptPath = `.obsidian/plugins/obsidian-ai-terminal/schedules/${tempEntry.id}.md`;
@@ -305,25 +305,25 @@ export class OtModal extends Modal {
 
           const result = await this.scheduler.execute(tempEntry);
 
-          // 임시 파일 정리
+          // 清理临时文件
           await this.app.vault.adapter.remove(promptPath);
 
-          statusEl.textContent = `테스트 완료: ${result.slice(0, 100)}`;
+          statusEl.textContent = `测试完成: ${result.slice(0, 100)}`;
           statusEl.style.color = "var(--text-success)";
         } else {
           const result = await this.scheduler.execute(tempEntry);
-          statusEl.textContent = `테스트 완료: ${result}`;
+          statusEl.textContent = `测试完成: ${result}`;
           statusEl.style.color = "var(--text-success)";
         }
       } catch (err: any) {
-        statusEl.textContent = `테스트 실패: ${err.message}`;
+        statusEl.textContent = `测试失败: ${err.message}`;
         statusEl.style.color = "var(--text-error)";
       } finally {
         testBtn.removeAttribute("disabled");
       }
     });
 
-    // Enter로 파싱 트리거 (Shift+Enter로 줄바꿈)
+    // Enter 触发解析 (Shift+Enter 换行)
     this.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
@@ -331,7 +331,7 @@ export class OtModal extends Modal {
       }
     });
 
-    // 포커스
+    // 聚焦
     setTimeout(() => this.inputEl?.focus(), 50);
   }
 
@@ -340,7 +340,7 @@ export class OtModal extends Modal {
   }
 }
 
-/** cron 표현식을 사람이 읽을 수 있는 한국어로 변환 */
+/** 将 cron 表达式转换为人类可读的中文描述 */
 function describeCron(cron: string): string {
   const parts = cron.trim().split(/\s+/);
   if (parts.length !== 5) return cron;
@@ -348,28 +348,28 @@ function describeCron(cron: string): string {
   const [minute, hour, dom, month, dow] = parts;
 
   const dowNames: Record<string, string> = {
-    "0": "일", "1": "월", "2": "화", "3": "수", "4": "목", "5": "금", "6": "토",
-    "1-5": "평일", "0,6": "주말",
+    "0": "日", "1": "一", "2": "二", "3": "三", "4": "四", "5": "五", "6": "六",
+    "1-5": "工作日", "0,6": "周末",
   };
 
   let desc = "";
 
-  // 요일
+  // 星期
   if (dow === "*") {
     if (dom === "*" && month === "*") {
-      desc = "매일";
+      desc = "每天";
     } else if (dom !== "*" && month === "*") {
-      desc = `매월 ${dom}일`;
+      desc = `每月 ${dom} 日`;
     }
   } else if (dowNames[dow]) {
-    desc = `매주 ${dowNames[dow]}요일`;
+    desc = `每周${dowNames[dow]}`;
   } else {
-    desc = `요일(${dow})`;
+    desc = `星期(${dow})`;
   }
 
-  // 시간
+  // 时间
   if (hour !== "*" && minute !== "*") {
-    desc += ` ${hour}시 ${minute === "0" ? "" : minute + "분"}`.trimEnd();
+    desc += ` ${hour}点 ${minute === "0" ? "" : minute + "分"}`.trimEnd();
   }
 
   return desc || cron;

@@ -6,8 +6,8 @@ const isWindows = process.platform === "win32";
 const isLinux = process.platform === "linux";
 
 function findPython(): string {
-  if (isWindows) return "python3"; // Windows에서는 사용 안 함
-  // python3 먼저 시도, 없으면 python 폴백 (일부 Linux 배포판)
+  if (isWindows) return "python3"; // Windows上不使用
+  // 优先尝试 python3，回退到 python（部分 Linux 发行版）
   try {
     execFileSync("python3", ["--version"], { stdio: "ignore" });
     return "python3";
@@ -39,7 +39,7 @@ export class PtyProcess extends EventEmitter {
     };
 
     if (!isWindows) {
-      // 기존 LANG이 있으면 유지, 없으면 UTF-8 설정 (일부 Linux 배포판에 en_US.UTF-8 미설치)
+      // 若已有 LANG 则保留，否则设置 UTF-8（部分 Linux 发行版未安装 en_US.UTF-8）
       if (!mergedEnv.LANG) {
         mergedEnv.LANG = "C.UTF-8";
       }
@@ -53,14 +53,14 @@ export class PtyProcess extends EventEmitter {
     ];
 
     if (isWindows) {
-      // Windows: ConPTY 브릿지 바이너리
+      // Windows: ConPTY 桥接二进制
       const bridgePath = path.join(this.pluginDir, "conpty-bridge.exe");
       this.process = spawn(bridgePath, args, {
         env: mergedEnv,
         stdio: ["pipe", "pipe", "pipe"],
       });
     } else {
-      // macOS/Linux: Python PTY 헬퍼
+      // macOS/Linux: Python PTY 辅助程序
       const helperPath = path.join(this.pluginDir, "pty-helper.py");
       const pythonCmd = findPython();
       this.process = spawn(pythonCmd, [helperPath, ...args], {

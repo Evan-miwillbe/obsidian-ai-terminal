@@ -18,23 +18,23 @@ def main():
 
     os.chdir(cwd)
 
-    # PTY 생성
+    # 创建 PTY
     master_fd, slave_fd = pty.openpty()
     set_winsize(master_fd, cols, rows)
 
     pid = os.fork()
     if pid == 0:
-        # 자식: slave PTY를 stdin/stdout/stderr로
+        # 子进程：将 slave PTY 设为 stdin/stdout/stderr
         os.close(master_fd)
         if hasattr(os, 'login_tty'):
-            # Python 3.12+: setsid + TIOCSCTTY + dup2 + close 한번에 처리
+            # Python 3.12+: 一次性完成 setsid + TIOCSCTTY + dup2 + close
             os.login_tty(slave_fd)
         else:
             os.setsid()
             try:
                 fcntl.ioctl(slave_fd, termios.TIOCSCTTY, 0)
             except OSError:
-                # WSL 등 일부 환경에서 TIOCSCTTY 실패 시 ttyname으로 fallback
+                # WSL 等部分环境中 TIOCSCTTY 失败时，通过 ttyname 回退
                 slave_name = os.ttyname(slave_fd)
                 os.close(slave_fd)
                 slave_fd = os.open(slave_name, os.O_RDWR)
@@ -51,19 +51,19 @@ def main():
         env["COLUMNS"] = str(cols)
         env["LINES"] = str(rows)
 
-        # 로그인 셸로 실행하여 .zprofile/.zshrc 로드 (nvm, homebrew 등 PATH 설정)
+        # 以登录 shell 启动以加载 .zprofile/.zshrc（设置 nvm、homebrew 等 PATH）
         os.execvpe(shell, [shell, "-l"], env)
 
-    # 부모: master PTY ↔ stdin/stdout 릴레이
+    # 父进程：在 master PTY 与 stdin/stdout 之间中继数据
     os.close(slave_fd)
 
-    # stdin을 non-blocking으로
+    # 将 stdin 设为 non-blocking 模式
     import fcntl as fcntl2
     flags = fcntl2.fcntl(sys.stdin.fileno(), fcntl2.F_GETFL)
     fcntl2.fcntl(sys.stdin.fileno(), fcntl2.F_SETFL, flags | os.O_NONBLOCK)
 
-    # SIGWINCH (resize) 처리 — stdin에서 ESC sequence로 수신
-    # 형식: \x1b[8;<rows>;<cols>t
+    # SIGWINCH（resize）处理 — 通过 stdin 以 ESC 序列接收
+    # 格式：\x1b[8;<rows>;<cols>t
     buf = b""
 
     stdin_fd = sys.stdin.fileno()
@@ -91,7 +91,7 @@ def main():
                     if not data:
                         break
 
-                    # resize 시퀀스 파싱: \x1b]resize;<cols>;<rows>\x07
+                    # 解析 resize 序列：\x1b]resize;<cols>;<rows>\x07
                     i = 0
                     while i < len(data):
                         if data[i:i+8] == b'\x1b]resize':
@@ -105,7 +105,7 @@ def main():
                                     os.kill(pid, signal.SIGWINCH)
                                 i = end + 1
                                 continue
-                        # 일반 데이터는 PTY로 전달
+                        # 普通数据转发到 PTY
                         end = data.find(b'\x1b]resize', i + 1)
                         if end == -1:
                             os.write(master_fd, data[i:])

@@ -52,12 +52,12 @@ export const DEFAULT_SETTINGS: AITerminalSettings = {
   vaultIndexPath: ".obsidian/plugins/obsidian-ai-terminal/vault-index.json",
   schedulerEnabled: false,
   schedulerPollMs: 60_000,
-  dailyNotePath: "00_Area/01_시간축/일일_노트",
+  dailyNotePath: "00_Area/01_时间轴/每日笔记",
   hostName: getDefaultHostName(),
   contextSources: DEFAULT_CONTEXT_SOURCES.map((s) => ({ ...s })),
   contextSyncEnabled: false,
   schemaMapEnabled: false,
-  deployRegistryPath: "00_시스템/deploy-registry.json",
+  deployRegistryPath: "00_系统/deploy-registry.json",
   ...DEFAULT_RULE_SYNC_SETTINGS,
 };
 
@@ -131,7 +131,7 @@ export class AITerminalSettingTab extends PluginSettingTab {
           })
       );
 
-    // Vault Index 섹션
+    // Vault Index 区域
     containerEl.createEl("h3", { text: "Vault Index" });
 
     new Setting(containerEl)
@@ -159,7 +159,7 @@ export class AITerminalSettingTab extends PluginSettingTab {
           })
       );
 
-    // Scheduler 섹션
+    // Scheduler 区域
     containerEl.createEl("h3", { text: "Scheduler" });
 
     new Setting(containerEl)
@@ -193,7 +193,7 @@ export class AITerminalSettingTab extends PluginSettingTab {
       .setDesc("Folder for daily notes (relative to vault root)")
       .addText((text) =>
         text
-          .setPlaceholder("00_Area/01_시간축/일일_노트")
+          .setPlaceholder("00_Area/01_时间轴/每日笔记")
           .setValue(this.plugin.settings.dailyNotePath)
           .onChange(async (value) => {
             this.plugin.settings.dailyNotePath = value;
@@ -201,7 +201,7 @@ export class AITerminalSettingTab extends PluginSettingTab {
           })
       );
 
-    // Rule Sync 섹션
+    // Rule Sync 区域
     containerEl.createEl("h3", { text: "Rule Sync (Harness)" });
 
     new Setting(containerEl)
@@ -230,9 +230,9 @@ export class AITerminalSettingTab extends PluginSettingTab {
       );
 
     // Profiles path, Global policy index path:
-    // 1차에서는 PROFILE_MATRIX 하드코딩 사용. output 생성에 반영하지 않으므로 UI 미노출.
-    // 2차에서 동적 profile 읽기 구현 시 UI 추가한다.
-    // settings 타입에는 유지하여 2차 전환 시 호환성 보장.
+    // 第一阶段使用 PROFILE_MATRIX 硬编码。不反映到 output 生成中，因此 UI 不暴露。
+    // 第二阶段实现动态 profile 读取时再添加 UI。
+    // settings 类型中保留，以确保第二阶段切换时的兼容性。
 
     new Setting(containerEl)
       .setName("Local sync log path")
@@ -310,7 +310,7 @@ export class AITerminalSettingTab extends PluginSettingTab {
           })
       );
 
-    // Local Rule Watch 섹션
+    // Local Rule Watch 区域
     containerEl.createEl("h3", { text: "Local Rule Watch" });
 
     new Setting(containerEl)
@@ -354,12 +354,12 @@ export class AITerminalSettingTab extends PluginSettingTab {
           })
       );
 
-    // Context Sync 섹션
+    // Context Sync 区域
     containerEl.createEl("h3", { text: "Context Sync" });
 
     new Setting(containerEl)
       .setName("Enable context sync")
-      .setDesc("LLM 컨텍스트를 볼트에 백업하는 sync 스크립트 생성")
+      .setDesc("生成用于将 LLM 上下文备份到 Vault 的 sync 脚本")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.contextSyncEnabled)
@@ -373,7 +373,7 @@ export class AITerminalSettingTab extends PluginSettingTab {
     if (this.plugin.settings.contextSyncEnabled) {
       new Setting(containerEl)
         .setName("Host name")
-        .setDesc("이 PC의 식별자. 볼트 내 _context/{host}/ 폴더명으로 사용")
+        .setDesc("本机的标识符，用作 Vault 内 _context/{host}/ 文件夹名称")
         .addText((text) =>
           text
             .setPlaceholder(getDefaultHostName())
@@ -384,7 +384,7 @@ export class AITerminalSettingTab extends PluginSettingTab {
             })
         );
 
-      // LLM 컨텍스트 소스 목록
+      // LLM 上下文来源列表
       containerEl.createEl("h4", { text: "LLM Context Sources" });
 
       this.plugin.settings.contextSources.forEach((source, index) => {
@@ -439,10 +439,10 @@ export class AITerminalSettingTab extends PluginSettingTab {
         })
       );
 
-      // 스크립트 생성 버튼
+      // 脚本生成按钮
       new Setting(containerEl)
         .setName("Generate sync script")
-        .setDesc("sync-context.sh를 생성합니다. 터미널에서 bash sync-context.sh로 실행")
+        .setDesc("生成 sync-context.sh，在终端中通过 bash sync-context.sh 执行")
         .addButton((btn) =>
           btn.setButtonText("Generate").onClick(async () => {
             const scriptPath = await writeSyncScript(
@@ -458,7 +458,7 @@ export class AITerminalSettingTab extends PluginSettingTab {
         );
     }
 
-    // Schema Map 섹션
+    // Schema Map 区域
     containerEl.createEl("h3", { text: "Schema Map" });
 
     new Setting(containerEl)
@@ -478,7 +478,7 @@ export class AITerminalSettingTab extends PluginSettingTab {
       .setDesc("Vault-relative path for deploy-registry.json (syncs across PCs)")
       .addText((text) =>
         text
-          .setPlaceholder("00_시스템/deploy-registry.json")
+          .setPlaceholder("00_系统/deploy-registry.json")
           .setValue(this.plugin.settings.deployRegistryPath)
           .onChange(async (value) => {
             this.plugin.settings.deployRegistryPath = value;
@@ -486,7 +486,7 @@ export class AITerminalSettingTab extends PluginSettingTab {
           })
       );
 
-    // 프리셋 섹션
+    // 预设区域
     containerEl.createEl("h3", { text: "Presets" });
 
     this.plugin.settings.presets.forEach((preset, index) => {
@@ -512,7 +512,7 @@ export class AITerminalSettingTab extends PluginSettingTab {
             })
         );
 
-      // 기본 Shell 프리셋은 삭제 불가
+      // 默认 Shell 预设不可删除
       if (index > 0) {
         s.addExtraButton((btn) =>
           btn.setIcon("trash").setTooltip("Delete preset").onClick(async () => {

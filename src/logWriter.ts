@@ -1,7 +1,7 @@
 import { App } from "obsidian";
 import * as os from "os";
 
-// ── 로그 엔트리 스키마 ──
+// ── 日志条目 Schema ──
 
 export interface LogEntry {
   sessionId: string;
@@ -19,39 +19,39 @@ export class LogWriter {
 
   constructor(
     private app: App,
-    private projectPath: string, // 볼트 내 프로젝트 경로 (e.g., "10_Project/하네스팩토리")
+    private projectPath: string, // Vault 内项目路径 (e.g., "10_Project/하네스팩토리")
     hostName?: string,
   ) {
     this.hostName = hostName || os.hostname();
   }
 
-  /** 오늘 날짜의 로그 파일 경로 */
+  /** 今日日期的日志文件路径 */
   private logPath(agent: string, date?: Date): string {
     const d = date ?? new Date();
     const dateStr = this.formatDate(d);
     return `${this.projectPath}/_logs/${this.hostName}/${agent}/${dateStr}.md`;
   }
 
-  /** 로그 엔트리 추가 (append-only) */
+  /** 追加日志条目 (append-only) */
   async append(agent: string, entry: LogEntry): Promise<string> {
     const logPath = this.logPath(agent);
 
-    // 디렉토리 확보
+    // 确保目录存在
     const dir = logPath.substring(0, logPath.lastIndexOf("/"));
     await this.ensureDir(dir);
 
-    // 기존 내용 읽기
+    // 读取已有内容
     let content = "";
     let entryCount = 0;
     const exists = await this.app.vault.adapter.exists(logPath);
 
     if (exists) {
       content = await this.app.vault.adapter.read(logPath);
-      // 기존 엔트리 수 카운트
+      // 统计已有条目数
       const matches = content.match(/^## #\d+/gm);
       entryCount = matches ? matches.length : 0;
     } else {
-      // 새 파일: 프론트매터 생성
+      // 新文件: 生成 frontmatter
       const date = new Date();
       content = [
         "---",
@@ -68,11 +68,11 @@ export class LogWriter {
     entryCount++;
     const time = new Date(entry.timestamp).toTimeString().slice(0, 5);
 
-    // 엔트리 포맷
+    // 条目格式
     const section: string[] = [
       `## #${entryCount} | ${entry.sessionId} | ${time}`,
       "",
-      "### 작업 내역",
+      "### 工作记录",
     ];
 
     for (const item of entry.workItems) {
@@ -81,7 +81,7 @@ export class LogWriter {
 
     if (entry.changedFiles && entry.changedFiles.length > 0) {
       section.push("");
-      section.push("### 변경 파일");
+      section.push("### 变更文件");
       for (const f of entry.changedFiles) {
         section.push(`- \`${f.path}\` [${f.action}] — ${f.summary}`);
       }
@@ -89,7 +89,7 @@ export class LogWriter {
 
     if (entry.openItems && entry.openItems.length > 0) {
       section.push("");
-      section.push("### 미결 사항");
+      section.push("### 待办事项");
       for (const item of entry.openItems) {
         section.push(`- [ ] ${item}`);
       }
@@ -104,7 +104,7 @@ export class LogWriter {
     section.push("---");
     section.push("");
 
-    // entry_count 갱신
+    // 更新 entry_count
     content = content.replace(/entry_count: \d+/, `entry_count: ${entryCount}`);
 
     // append
@@ -114,7 +114,7 @@ export class LogWriter {
     return logPath;
   }
 
-  /** 특정 기간의 로그 파일 목록 반환 */
+  /** 返回指定时间段的日志文件列表 */
   async listLogs(agent: string, since: Date, until: Date): Promise<string[]> {
     const logDir = `${this.projectPath}/_logs/${this.hostName}/${agent}`;
     const paths: string[] = [];
@@ -135,7 +135,7 @@ export class LogWriter {
     return paths.sort();
   }
 
-  /** 모든 호스트/에이전트의 로그 수집 */
+  /** 收集所有 host/agent 的日志 */
   async collectAllLogs(since: Date, until: Date): Promise<string[]> {
     const logsDir = `${this.projectPath}/_logs`;
     const allPaths: string[] = [];
@@ -143,12 +143,12 @@ export class LogWriter {
     const logsExists = await this.app.vault.adapter.exists(logsDir);
     if (!logsExists) return allPaths;
 
-    // _logs/{host}/ 순회
+    // 遍历 _logs/{host}/
     const hostListing = await this.app.vault.adapter.list(logsDir);
     for (const hostDir of hostListing.folders) {
       if (hostDir.endsWith("/_summaries")) continue;
 
-      // _logs/{host}/{agent}/ 순회
+      // 遍历 _logs/{host}/{agent}/
       const agentListing = await this.app.vault.adapter.list(hostDir);
       for (const agentDir of agentListing.folders) {
         const fileListing = await this.app.vault.adapter.list(agentDir);

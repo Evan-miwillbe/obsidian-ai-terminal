@@ -2,26 +2,26 @@
 """
 Antigravity Conversation Extractor
 ===================================
-Go Language Server의 GetCascadeTrajectory gRPC API를 통해
-로컬 암호화된 .pb 대화 파일을 복호화하여 JSON/Markdown으로 추출한다.
+通过 Go Language Server 的 GetCascadeTrajectory gRPC API，
+将本地加密的 .pb 对话文件解密并提取为 JSON/Markdown 格式。
 
-사용법:
-  python antigravity_extract.py                    # 전체 대화 추출
-  python antigravity_extract.py --id 71b49a5a...   # 특정 대화만
-  python antigravity_extract.py --list              # 대화 목록만
-  python antigravity_extract.py --format md         # 마크다운 출력
-  python antigravity_extract.py --output ./out      # 출력 디렉토리 지정
+用法：
+  python antigravity_extract.py                    # 提取全部对话
+  python antigravity_extract.py --id 71b49a5a...   # 仅提取特定对话
+  python antigravity_extract.py --list              # 仅列出对话
+  python antigravity_extract.py --format md         # Markdown 输出
+  python antigravity_extract.py --output ./out      # 指定输出目录
 
-원리:
-  1. 실행 중인 language_server_windows_x64.exe 프로세스에서 포트/CSRF 토큰 추출
-  2. GetCascadeTrajectory gRPC/Connect API 호출 (HTTPS, localhost)
-  3. LS가 .pb 파일을 AES-GCM 복호화 → protobuf 역직렬화 → JSON 반환
-  4. JSON에서 user/assistant 텍스트 추출 → 파일 저장
+原理：
+  1. 从运行中的 language_server_windows_x64.exe 进程提取端口/CSRF 令牌
+  2. 调用 GetCascadeTrajectory gRPC/Connect API（HTTPS, localhost）
+  3. LS 对 .pb 文件进行 AES-GCM 解密 → protobuf 反序列化 → 返回 JSON
+  4. 从 JSON 中提取 user/assistant 文本 → 保存到文件
 
-제약:
-  - Antigravity 앱이 실행 중이어야 함 (LS 프로세스 필요)
-  - 현재 Windows 유저 세션에서만 동작
-  - 원본 .pb 파일은 일절 수정하지 않음 (read-only)
+限制：
+  - 需要正在运行 Antigravity 应用（需要 LS 进程）
+  - 仅在当前 Windows 用户会话中运行
+  - 不修改原始 .pb 文件（只读）
 """
 
 import argparse
@@ -38,7 +38,7 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
-# UTF-8 stdout 강제 (Windows 터미널 mojibake 방지)
+# 强制 UTF-8 stdout（防止 Windows 终端乱码）
 if sys.platform == "win32":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
@@ -51,11 +51,11 @@ ANNOTATIONS_DIR = ANTIGRAVITY_DIR / "annotations"
 
 
 # ---------------------------------------------------------------------------
-# 1. LS 프로세스 탐지
+# 1. LS 进程检测
 # ---------------------------------------------------------------------------
 
 def discover_ls_instances():
-    """실행 중인 language_server 프로세스에서 포트와 CSRF 토큰을 추출한다."""
+    """从运行中的 language_server 进程提取端口和 CSRF 令牌。"""
     try:
         result = subprocess.run(
             ["powershell", "-Command",
@@ -67,7 +67,7 @@ def discover_ls_instances():
         if isinstance(procs, dict):
             procs = [procs]
     except Exception as e:
-        print(f"[ERROR] LS 프로세스 탐지 실패: {e}", file=sys.stderr)
+        print(f"[ERROR] LS 进程检测失败：{e}", file=sys.stderr)
         return []
 
     instances = []
@@ -84,7 +84,7 @@ def discover_ls_instances():
         csrf = csrf_match.group(1)
         workspace = workspace_match.group(1) if workspace_match else "unknown"
 
-        # 포트 탐지: netstat
+        # 端口检测：netstat
         ports = _get_listening_ports(pid)
         if not ports:
             continue
@@ -100,7 +100,7 @@ def discover_ls_instances():
 
 
 def _get_listening_ports(pid):
-    """특정 PID가 리슨하는 TCP 포트 목록을 반환한다."""
+    """返回指定 PID 正在监听的 TCP 端口列表。"""
     try:
         result = subprocess.run(
             ["powershell", "-Command",
@@ -117,7 +117,7 @@ def _get_listening_ports(pid):
 
 
 # ---------------------------------------------------------------------------
-# 2. gRPC/Connect API 호출
+# 2. gRPC/Connect API 调用
 # ---------------------------------------------------------------------------
 
 _SSL_CTX = ssl.create_default_context()
@@ -126,7 +126,7 @@ _SSL_CTX.verify_mode = ssl.CERT_NONE
 
 
 def call_ls_api(port, csrf, method, payload=None):
-    """LS의 Connect API를 호출하고 JSON 응답을 반환한다."""
+    """调用 LS 的 Connect API 并返回 JSON 响应。"""
     url = f"https://127.0.0.1:{port}/exa.language_server_pb.LanguageServerService/{method}"
     headers = {
         "Content-Type": "application/json",
@@ -150,7 +150,7 @@ def call_ls_api(port, csrf, method, payload=None):
 
 
 def find_working_port(instance):
-    """Heartbeat로 응답하는 HTTPS 포트를 찾는다."""
+    """找到响应 Heartbeat 的 HTTPS 端口。"""
     for port in instance["ports"]:
         result = call_ls_api(port, instance["csrf"], "Heartbeat")
         if "_error" not in result:
@@ -159,16 +159,16 @@ def find_working_port(instance):
 
 
 def get_trajectory(port, csrf, cascade_id):
-    """GetCascadeTrajectory 호출로 복호화된 대화 데이터를 반환한다."""
+    """通过 GetCascadeTrajectory 调用返回解密后的对话数据。"""
     return call_ls_api(port, csrf, "GetCascadeTrajectory", {"cascadeId": cascade_id})
 
 
 # ---------------------------------------------------------------------------
-# 3. 로컬 메타데이터 수집
+# 3. 本地元数据收集
 # ---------------------------------------------------------------------------
 
 def list_conversations():
-    """conversations/ 디렉토리의 .pb 파일 목록과 메타데이터를 반환한다."""
+    """返回 conversations/ 目录下的 .pb 文件列表和元数据。"""
     convs = []
     for pb in sorted(CONVERSATIONS_DIR.glob("*.pb"), key=os.path.getmtime, reverse=True):
         cascade_id = pb.stem
@@ -186,7 +186,7 @@ def list_conversations():
 
 
 def _read_annotation(cascade_id):
-    """annotations/{id}.pbtxt에서 last_user_view_time을 읽는다."""
+    """从 annotations/{id}.pbtxt 读取 last_user_view_time。"""
     pbtxt = ANNOTATIONS_DIR / f"{cascade_id}.pbtxt"
     if not pbtxt.exists():
         return None
@@ -202,11 +202,11 @@ def _read_annotation(cascade_id):
 
 
 # ---------------------------------------------------------------------------
-# 4. 변환: Trajectory → Markdown
+# 4. 转换：Trajectory → Markdown
 # ---------------------------------------------------------------------------
 
 def trajectory_to_markdown(traj_data, cascade_id):
-    """Trajectory JSON을 읽기 쉬운 마크다운으로 변환한다."""
+    """将 Trajectory JSON 转换为易读的 Markdown 格式。"""
     traj = traj_data.get("trajectory", {})
     steps = traj.get("steps", [])
 
@@ -271,7 +271,7 @@ def trajectory_to_markdown(traj_data, cascade_id):
 
 
 def trajectory_to_summary(traj_data, cascade_id):
-    """한 줄 요약을 반환한다."""
+    """返回单行摘要。"""
     traj = traj_data.get("trajectory", {})
     steps = traj.get("steps", [])
     user_steps = [s for s in steps if "userInput" in s]
@@ -287,7 +287,7 @@ def trajectory_to_summary(traj_data, cascade_id):
 
 
 def _format_ts(iso_str):
-    """ISO timestamp → KST 표시용 문자열."""
+    """ISO timestamp → KST 显示用字符串。"""
     if not iso_str:
         return ""
     try:
@@ -300,26 +300,26 @@ def _format_ts(iso_str):
 
 
 # ---------------------------------------------------------------------------
-# 5. 메인
+# 5. 主函数
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Antigravity 대화 추출기")
-    parser.add_argument("--list", action="store_true", help="대화 목록만 출력")
-    parser.add_argument("--id", type=str, help="특정 cascade_id만 추출")
-    parser.add_argument("--format", choices=["json", "md", "both"], default="both", help="출력 형식")
-    parser.add_argument("--output", type=str, default=None, help="출력 디렉토리")
-    parser.add_argument("--implicit", action="store_true", help="implicit 대화도 포함")
+    parser = argparse.ArgumentParser(description="Antigravity 对话提取工具")
+    parser.add_argument("--list", action="store_true", help="仅输出对话列表")
+    parser.add_argument("--id", type=str, help="仅提取指定 cascade_id")
+    parser.add_argument("--format", choices=["json", "md", "both"], default="both", help="输出格式")
+    parser.add_argument("--output", type=str, default=None, help="输出目录")
+    parser.add_argument("--implicit", action="store_true", help="同时包含 implicit 对话")
     args = parser.parse_args()
 
-    # 출력 디렉토리
+    # 输出目录
     if args.output:
         out_dir = Path(args.output)
     else:
         out_dir = Path.home() / ".gemini" / "antigravity" / "_extracted"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # 대화 목록
+    # 对话列表
     convs = list_conversations()
     if args.implicit:
         for pb in sorted(IMPLICIT_DIR.glob("*.pb"), key=os.path.getmtime, reverse=True):
@@ -342,37 +342,37 @@ def main():
         print(f"\nTotal: {len(convs)} conversations")
         return
 
-    # LS 탐지
-    print("[1/4] LS 프로세스 탐지 중...")
+    # LS 检测
+    print("[1/4] 正在检测 LS 进程...")
     instances = discover_ls_instances()
     if not instances:
-        print("[ERROR] 실행 중인 Antigravity LS가 없습니다. 앱을 먼저 실행하세요.", file=sys.stderr)
+        print("[ERROR] 未检测到运行中的 Antigravity LS。请先启动应用。", file=sys.stderr)
         sys.exit(1)
 
-    # 작동하는 포트 찾기
+    # 查找可用端口
     working = []
     for inst in instances:
         port = find_working_port(inst)
         if port:
             working.append({"port": port, "csrf": inst["csrf"], "workspace": inst["workspace"]})
-            print(f"  LS 발견: port={port}, workspace={inst['workspace'][:30]}")
+            print(f"  发现 LS：port={port}, workspace={inst['workspace'][:30]}")
 
     if not working:
-        print("[ERROR] 응답하는 LS를 찾을 수 없습니다.", file=sys.stderr)
+        print("[ERROR] 未找到可响应的 LS。", file=sys.stderr)
         sys.exit(1)
 
-    # 추출 대상 필터
+    # 提取目标筛选
     if args.id:
         targets = [c for c in convs if c["cascade_id"].startswith(args.id)]
         if not targets:
-            print(f"[ERROR] ID '{args.id}'에 해당하는 대화가 없습니다.", file=sys.stderr)
+            print(f"[ERROR] 未找到 ID 为 '{args.id}' 的对话。", file=sys.stderr)
             sys.exit(1)
     else:
         targets = convs
 
-    print(f"[2/4] {len(targets)}개 대화 추출 시작...")
+    print(f"[2/4] 开始提取 {len(targets)} 个对话...")
 
-    # 추출
+    # 提取
     success = 0
     fail = 0
     summaries = []
@@ -381,7 +381,7 @@ def main():
         cid = conv["cascade_id"]
         label = f"[{i}/{len(targets)}] {cid[:12]}..."
 
-        # 아무 LS에서든 시도
+        # 逐一尝试 LS
         traj_data = None
         for w in working:
             result = get_trajectory(w["port"], w["csrf"], cid)
@@ -397,13 +397,13 @@ def main():
         steps = traj_data["trajectory"].get("steps", [])
         user_turns = sum(1 for s in steps if "userInput" in s)
 
-        # JSON 저장
+        # 保存 JSON
         if args.format in ("json", "both"):
             json_path = out_dir / f"{cid}.json"
             with open(json_path, "w", encoding="utf-8") as f:
                 json.dump(traj_data, f, ensure_ascii=False, indent=2)
 
-        # Markdown 저장
+        # 保存 Markdown
         if args.format in ("md", "both"):
             md_path = out_dir / f"{cid}.md"
             md_content = trajectory_to_markdown(traj_data, cid)
@@ -417,8 +417,8 @@ def main():
         success += 1
         print(f"  {label} OK ({len(steps)} steps, {user_turns} user turns)")
 
-    # 인덱스 저장
-    print(f"[3/4] 인덱스 저장...")
+    # 保存索引
+    print(f"[3/4] 正在保存索引...")
     index_path = out_dir / "_index.json"
     with open(index_path, "w", encoding="utf-8") as f:
         json.dump({
@@ -429,9 +429,9 @@ def main():
             "conversations": summaries,
         }, f, ensure_ascii=False, indent=2)
 
-    print(f"[4/4] 완료!")
-    print(f"  성공: {success}, 실패/스킵: {fail}")
-    print(f"  출력: {out_dir}")
+    print(f"[4/4] 完成！")
+    print(f"  成功：{success}，失败/跳过：{fail}")
+    print(f"  输出目录：{out_dir}")
 
 
 if __name__ == "__main__":

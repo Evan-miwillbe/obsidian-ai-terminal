@@ -4,7 +4,7 @@ import * as path from "path";
 import * as os from "os";
 import * as crypto from "crypto";
 
-// ── 타입 ──
+// ── 类型 ──
 
 interface ProfileConfig {
   chunks: string[];
@@ -73,7 +73,7 @@ export const DEFAULT_RULE_SYNC_SETTINGS: RuleSyncSettings = {
   },
 };
 
-// ── 1차 명시 매핑 (profile 기준) ──
+// ── 一级显式映射（按 profile） ──
 
 const PROFILE_MATRIX: Record<string, ProfileConfig> = {
   company: {
@@ -94,7 +94,7 @@ const PROFILE_MATRIX: Record<string, ProfileConfig> = {
   },
 };
 
-// ── 배포 타겟 → canonical source 매핑 (drift detect 용) ──
+// ── 部署目标 → canonical source 映射（用于 drift detect） ──
 
 function getDeployedTargetSourceMapping(absPath: string): string {
   const home = os.homedir();
@@ -111,7 +111,7 @@ function getDeployedTargetSourceMapping(absPath: string): string {
   return "none";
 }
 
-// ── 유틸 ──
+// ── 工具函数 ──
 
 function contentHash(content: string): string {
   return crypto.createHash("sha256").update(content, "utf-8").digest("hex").slice(0, 16);
@@ -161,7 +161,7 @@ function isWatchableFile(filename: string): boolean {
   return LOCAL_WATCH_EXTENSIONS.has(path.extname(filename).toLowerCase());
 }
 
-// ── Claude Global 출력 생성 ──
+// ── Claude Global 输出生成 ──
 
 function generateClaudeGlobal(atoms: Map<string, string>): string {
   const core = atoms.get("core") ?? "";
@@ -169,9 +169,9 @@ function generateClaudeGlobal(atoms: Map<string, string>): string {
   return `# Global Rules
 
 ## Policy Surface
-- 이 파일은 \`always_on\` 최소 규칙만 유지합니다.
-- 상세 정책은 \`linked\` 모듈과 \`0_harness/factory/atoms/global_policy_index.md\`에서 회수합니다.
-- generated 파일은 projection이며 canonical source는 \`policy_module\`입니다.
+- 此文件仅保留 \`always_on\` 最小规则。
+- 详细策略从 \`linked\` 模块和 \`0_harness/factory/atoms/global_policy_index.md\` 中获取。
+- generated 文件是投影，canonical source 是 \`policy_module\`。
 
 ## Always On
 
@@ -179,14 +179,14 @@ function generateClaudeGlobal(atoms: Map<string, string>): string {
 ${core.replace(/^#.*\n+/, "").trim()}
 
 ### Governance minimum
-- 안전이 속도보다 우선입니다.
-- 한 발제는 한 맥락으로 처리합니다.
-- reviewable proposal은 FIFO를 기본으로 합니다.
-- 중요한 변경은 감사 가능해야 합니다.
-- proposal 처리 상태는 기본적으로 stateless하게 유지합니다.
+- 安全优先于速度。
+- 一个议题在一个上下文中处理。
+- reviewable proposal 默认遵循 FIFO。
+- 重要变更必须可审计。
+- proposal 处理状态默认保持无状态。
 
 ### Approval minimum
-- 고영향 작업은 명시적 승인 경계를 유지합니다.
+- 高影响操作需保持明确的审批边界。
 
 ## Linked Policy
 - \`vault\`: 0_harness/factory/atoms/rules/vault.md
@@ -195,12 +195,12 @@ ${core.replace(/^#.*\n+/, "").trim()}
 - \`governance\`: 0_harness/factory/atoms/rules/governance.md
 
 ## Retrieval Guidance
-- 긴 규칙을 이 파일에 누적하지 말고 linked module 또는 MCP 조회를 우선합니다.
-- 프로젝트별 상세 규칙은 profile/project surface에서 이어집니다.
+- 不要在此文件中堆积冗长规则，优先使用 linked module 或 MCP 查询。
+- 项目级详细规则在 profile/project surface 中衔接。
 `;
 }
 
-// ── Claude Profile 출력 생성 ──
+// ── Claude Profile 输出生成 ──
 
 function generateClaudeProfile(profile: string, config: ProfileConfig, atoms: Map<string, string>): string {
   const globsYaml = config.globs.map((g) => `"${g}"`).join(", ");
@@ -222,7 +222,7 @@ globs: [${globsYaml}]
   return header + bodies + "\n";
 }
 
-// ── Gemini Global 출력 생성 ──
+// ── Gemini Global 输出生成 ──
 
 function generateGeminiGlobal(atoms: Map<string, string>): string {
   const core = atoms.get("core") ?? "";
@@ -234,7 +234,7 @@ function generateGeminiGlobal(atoms: Map<string, string>): string {
 ${core.trim()}
 
 # Harness Skills
-스킬/규칙 원본: 0_harness/
+技能/规则源文件: 0_harness/
 `;
 }
 
@@ -254,18 +254,18 @@ class ConfirmSyncModal extends Modal {
 
   onOpen(): void {
     const { contentEl } = this;
-    contentEl.createEl("h3", { text: "Rule Sync: 로컬이 더 최신" });
+    contentEl.createEl("h3", { text: "Rule Sync: 本地文件较新" });
     contentEl.createEl("p", {
-      text: `"${this.profile}" (${this.target}) 로컬 파일이 harness 소스보다 최신입니다. 덮어쓸까요?`,
+      text: `"${this.profile}" (${this.target}) 本地文件比 harness 源文件更新。是否覆盖？`,
     });
 
     const btnRow = contentEl.createDiv({ cls: "modal-button-container" });
-    btnRow.createEl("button", { text: "덮어쓰기", cls: "mod-warning" }).addEventListener("click", () => {
+    btnRow.createEl("button", { text: "覆盖", cls: "mod-warning" }).addEventListener("click", () => {
       this.resolved = true;
       this.close();
       this.onConfirm();
     });
-    btnRow.createEl("button", { text: "건너뛰기" }).addEventListener("click", () => {
+    btnRow.createEl("button", { text: "跳过" }).addEventListener("click", () => {
       this.resolved = true;
       this.close();
       this.onCancel();
@@ -277,7 +277,7 @@ class ConfirmSyncModal extends Modal {
   }
 }
 
-// ── RuleSync 본체 ──
+// ── RuleSync 主体 ──
 
 export class RuleSync {
   private localRuleHashes = new Map<string, string>();
@@ -289,7 +289,7 @@ export class RuleSync {
     private settings: RuleSyncSettings,
   ) {}
 
-  // ── Vault 경로 헬퍼 ──
+  // ── Vault 路径辅助函数 ──
 
   private get vaultPath(): string {
     return (this.app.vault.adapter as any).basePath as string;
@@ -307,7 +307,7 @@ export class RuleSync {
     return path.join(os.homedir(), ".gemini.md");
   }
 
-  // ── Atom 읽기 ──
+  // ── Atom 读取 ──
 
   private async readAtoms(): Promise<Map<string, string>> {
     const atoms = new Map<string, string>();
@@ -319,16 +319,16 @@ export class RuleSync {
         const raw = await this.app.vault.adapter.read(vaultRelPath);
         atoms.set(name, stripFrontmatter(raw));
       } catch {
-        // atom 파일 없으면 skip
+        // atom 文件不存在则跳过
       }
     }
     return atoms;
   }
 
-  // ── atom source 중 최신 mtime ──
-  // 1차: output 생성에 실제 사용하는 atoms만 대상.
-  // profiles/*.md, global_policy_index.md는 1차에서 output 생성에 사용하지 않으므로 제외.
-  // 2차에서 profiles 동적 읽기 구현 시 여기에 추가한다.
+  // ── atom source 中最新 mtime ──
+  // 一级: 仅针对 output 生成实际使用的 atoms。
+  // profiles/*.md、global_policy_index.md 在一级中不用于 output 生成，因此排除。
+  // 二级实现动态 profile 读取时在此处添加。
 
   private latestSourceMtime(): Date | null {
     let latest: Date | null = null;
@@ -341,7 +341,7 @@ export class RuleSync {
     return latest;
   }
 
-  // ── 단일 타겟 배포 ──
+  // ── 单目标部署 ──
 
   private async deploySingle(
     targetPath: string,
@@ -353,7 +353,7 @@ export class RuleSync {
     const existing = readFileOrNull(targetPath);
     const deployedHash = existing ? contentHash(existing) : null;
 
-    // hash 동일 → skip
+    // hash 相同 → 跳过
     if (deployedHash === srcHash) {
       return { profile, target: targetLabel, action: "skip", sourceHash: srcHash, deployedHash, sourceMtime: null, localMtime: null };
     }
@@ -363,7 +363,7 @@ export class RuleSync {
     const sourceMtimeStr = atomMtime?.toISOString() ?? null;
     const localMtimeStr = localMtime?.toISOString() ?? null;
 
-    // hash 다름 + 로컬이 더 최신 → confirm
+    // hash 不同 + 本地较新 → 需确认
     if (localMtime && atomMtime && localMtime > atomMtime) {
       return new Promise((resolve) => {
         new ConfirmSyncModal(
@@ -381,7 +381,7 @@ export class RuleSync {
       });
     }
 
-    // auto-deploy
+    // 自动部署
     this.writeTarget(targetPath, content);
     return { profile, target: targetLabel, action: "auto-deploy", sourceHash: srcHash, deployedHash, sourceMtime: sourceMtimeStr, localMtime: localMtimeStr };
   }
@@ -390,7 +390,7 @@ export class RuleSync {
     ensureDir(path.dirname(targetPath));
     this.selfWritePaths.add(targetPath);
     fs.writeFileSync(targetPath, content, "utf-8");
-    // 자신의 쓰기를 감지하지 않도록 잠시 후 제거
+    // 短暂延迟后移除，避免检测到自身写入
     setTimeout(() => this.selfWritePaths.delete(targetPath), 2000);
   }
 
@@ -443,7 +443,7 @@ export class RuleSync {
     return this.deploySingle(this.geminiPath, content, "global", "gemini-global");
   }
 
-  // ── 전체 Sync ──
+  // ── 全量 Sync ──
 
   async syncAll(force = false): Promise<DeployResult[]> {
     const results: DeployResult[] = [];
@@ -458,7 +458,7 @@ export class RuleSync {
       results.push(await this.syncGeminiGlobal(force));
     }
 
-    // 로그 기록 (local + shared outbox)
+    // 日志记录（本地 + 共享 outbox）
     const entries = results
       .filter((r) => r.action !== "skip")
       .map((r): LogEntry => ({
@@ -479,11 +479,11 @@ export class RuleSync {
       await this.appendSharedOutbox(entries, this.settings.ruleReportOutboxPath);
     }
 
-    // Notice 요약
+    // Notice 汇总
     const deployed = results.filter((r) => r.action === "auto-deploy" || r.action === "confirm-deploy");
     const skipped = results.filter((r) => r.action === "skip");
     if (deployed.length > 0) {
-      new Notice(`Rule Sync: ${deployed.length}개 배포, ${skipped.length}개 skip`);
+      new Notice(`Rule Sync: ${deployed.length} 个已部署, ${skipped.length} 个跳过`);
     }
 
     return results;
@@ -494,7 +494,7 @@ export class RuleSync {
   startLocalRuleWatch(): void {
     if (!this.settings.localRuleWatchEnabled) return;
 
-    // 초기 hash 기록
+    // 初始 hash 记录
     for (const rawPath of this.settings.localRuleWatchPaths) {
       const absPath = resolveHome(rawPath);
       const content = readFileOrNull(absPath);
@@ -503,11 +503,11 @@ export class RuleSync {
       }
     }
 
-    // fs.watch 등록
+    // 注册 fs.watch
     for (const rawPath of this.settings.localRuleWatchPaths) {
       const absPath = resolveHome(rawPath);
 
-      // 디렉토리인 경우 recursive watch
+      // 目录情况下使用 recursive watch
       try {
         const stat = fs.statSync(absPath);
         if (stat.isDirectory()) {
@@ -524,7 +524,7 @@ export class RuleSync {
           this.localWatchers.push(watcher);
         }
       } catch {
-        // 경로가 아직 존재하지 않으면 skip
+        // 路径尚不存在则跳过
       }
     }
   }
@@ -537,10 +537,10 @@ export class RuleSync {
   }
 
   private async handleLocalRuleChange(absPath: string): Promise<void> {
-    // 자신이 방금 쓴 파일이면 무시
+    // 忽略自身刚写入的文件
     if (this.selfWritePaths.has(absPath)) return;
 
-    // debounce: 100ms 후 처리 (fs.watch가 중복 이벤트 발생 가능)
+    // debounce: 100ms 后处理（fs.watch 可能产生重复事件）
     await new Promise((r) => setTimeout(r, 100));
 
     const content = readFileOrNull(absPath);
@@ -549,7 +549,7 @@ export class RuleSync {
     const newHash = contentHash(content);
     const oldHash = this.localRuleHashes.get(absPath);
 
-    // hash 동일 → 실제 변경 아님
+    // hash 相同 → 实际未变更
     if (oldHash === newHash) return;
 
     this.localRuleHashes.set(absPath, newHash);
@@ -573,7 +573,7 @@ export class RuleSync {
     new Notice(`Local rule changed: ${path.basename(absPath)}`);
   }
 
-  // ── JSONL 로그: local ──
+  // ── JSONL 日志: 本地 ──
 
   private async appendLocalLog(entries: LogEntry[]): Promise<void> {
     const lines = entries.map((e) => JSON.stringify(e)).join("\n") + "\n";
@@ -590,7 +590,7 @@ export class RuleSync {
     }
   }
 
-  // ── JSONL 로그: shared outbox ──
+  // ── JSONL 日志: 共享 outbox ──
 
   private async appendSharedOutbox(entries: LogEntry[], outboxPath: string): Promise<void> {
     const lines = entries.map((e) => JSON.stringify(e)).join("\n") + "\n";
@@ -606,10 +606,10 @@ export class RuleSync {
     }
   }
 
-  // ── Watch 대상 경로 판별 (vault 내 source) ──
-  // 1차: output 생성에 실제 사용하는 atoms만 watch.
-  // profiles/*.md, global_policy_index.md는 1차에서 output에 반영하지 않으므로 watch하지 않는다.
-  // 2차에서 동적 profile 읽기 구현 시 여기에 추가한다.
+  // ── Watch 目标路径判定（vault 内 source） ──
+  // 一级: 仅 watch output 生成实际使用的 atoms。
+  // profiles/*.md、global_policy_index.md 在一级中不反映到 output，因此不 watch。
+  // 二级实现动态 profile 读取时在此处添加。
 
   isSourceWatchTarget(filePath: string): boolean {
     return filePath.startsWith(this.settings.ruleSyncAtomsPath);

@@ -1,96 +1,99 @@
 # Obsidian AI Terminal
 
-An Obsidian plugin that embeds a **fully functional terminal** inside Obsidian — designed for running AI CLI tools like **Claude Code** and **Gemini CLI** directly within your vault.
+在 Obsidian 中嵌入**完整功能终端**的插件 — 专为直接在 Vault 内运行 **Claude Code**、**Gemini CLI** 等 AI CLI 工具而设计。
 
-> No native Node.js modules. No WebSocket. Cross-platform (macOS + Windows).
+> 无需原生 Node.js 模块，无需 WebSocket，跨平台支持（macOS + Windows + Linux）。
 
 ![macOS](https://img.shields.io/badge/platform-macOS-blue)
 ![Windows](https://img.shields.io/badge/platform-Windows-blue)
+![Linux](https://img.shields.io/badge/platform-Linux-blue)
 ![Obsidian](https://img.shields.io/badge/Obsidian-1.0%2B-purple)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-## Why?
+## 为什么做这个插件？
 
-Existing Obsidian terminal plugins either:
-- Depend on **node-pty** (native C++ module) — fragile across Electron versions
-- Only support simple command execution — no TUI app support
+现有的 Obsidian 终端插件要么：
+- 依赖 **node-pty**（原生 C++ 模块）— 在不同 Electron 版本间容易出问题
+- 只支持简单的命令执行 — 不支持 TUI 应用
 
-This plugin uses **platform-native PTY** allocation without any native Node.js modules:
-- **macOS/Linux**: Python 3 `pty` module (ships with the OS)
-- **Windows**: Rust ConPTY bridge binary (~400KB, bundled)
+本插件使用**平台原生 PTY** 分配，无需任何原生 Node.js 模块：
+- **macOS/Linux**：Python 3 `pty` 模块（系统自带）
+- **Windows**：Rust ConPTY 桥接二进制（~400KB，随插件打包）
 
-Full TUI support — colors, cursor movement, interactive input — for apps like Claude Code.
+完整 TUI 支持 — 颜色、光标移动、交互式输入 — 适用于 Claude Code 等应用。
 
-## Features
+## 功能特性
 
-### Terminal (Phase 1)
-- **Full terminal emulation** — powered by [xterm.js](https://xtermjs.org/)
-- **Cross-platform** — macOS (Python PTY) + Windows (ConPTY)
-- **AI CLI presets** — one-click launch for Claude Code, Gemini CLI, or any CLI tool
-- **Vault-aware** — automatically sets working directory to your vault root
-- **No native modules** — works across Obsidian updates without recompilation
-- **Multi-tab** — tab bar with "+" button, switch between terminals within one panel
-- **Split panes** — drag a tab down to pin it as a bottom split pane; resizable divider to adjust height ratio
-- **Close confirmation** — prevents accidental terminal closure
-- **Theme-aware UI** — transparent background, colors adapt to your Obsidian theme
+### 终端（Phase 1）
+- **完整终端模拟** — 基于 [xterm.js](https://xtermjs.org/) + WebGL 硬件加速渲染
+- **跨平台** — macOS（Python PTY）+ Windows（ConPTY）+ Linux
+- **AI CLI 预设** — 一键启动 Claude Code、Gemini CLI 或任意 CLI 工具
+- **Vault 感知** — 自动将工作目录设为 Vault 根目录
+- **无原生模块** — Obsidian 更新后无需重新编译
+- **多标签页** — 标签栏 + "+" 按钮，在一个面板内切换多个终端
+- **分栏面板** — 拖拽标签到底部固定为分栏；可拖拽分割线调整高度
+- **关闭确认** — 防止误关终端
+- **主题自适应** — 透明背景，颜色随 Obsidian 主题变化
+- **字体缩放** — Ctrl + 滚轮调整终端字体大小
+- **标签重命名** — 自定义终端标签名称
 
-### Vault Intelligence (Phase 2)
-- **Vault search** — `/search tag:keyword`, `/backlinks`, `/links` with ANSI terminal output
-- **Natural language scheduling** (`/ot`) — "매일 아침 8시에 노트 요약해줘" → cron auto-registration
-- **MCP Server** — schedule CRUD via stdio (Claude Code integration)
-- **Log system** — `_logs/{host}/{agent}/{date}.md` append-only per PC/agent
-- **Hub generator** — progressive summarization (daily → weekly → monthly) via `claude -p`
+### Vault 智能功能（Phase 2）
+- **Vault 搜索** — `/search tag:关键词`、`/backlinks`、`/links`，ANSI 终端输出
+- **自然语言调度**（`/ot`）— "每天早上8点总结笔记" → 自动注册 cron 任务
+- **MCP Server** — 通过 stdio 进行 schedule CRUD（Claude Code 集成）
+- **日志系统** — `_logs/{host}/{agent}/{date}.md` 按 PC/Agent 追加写入
+- **Hub 生成器** — 渐进式摘要（日 → 周 → 月），通过 `claude -p` 生成
 
-### Schema Map (Phase 3)
-- **Dimension → Hub → Deploy** visual editor (SVG)
-- **Hub build engine** — merge dimension .md files into `HUB_{project}.md`
-- **Change detection** — dimension edits turn connection lines yellow (stale)
+### Schema Map（Phase 3）
+- **维度 → Hub → 部署**可视化编辑器（SVG）
+- **Hub 构建引擎** — 合并维度 .md 文件为 `HUB_{project}.md`
+- **变更检测** — 维度编辑后连接线变黄（标记为过期）
 
-### Roadmap View (Phase 4)
-- **SVG Gantt chart** — scans `node_type` frontmatter from vault .md files
-- **Depth grouping** — project → phase → epic → task → subtask
-- **Progress bars** + dependency arrows
+### Roadmap 视图（Phase 4）
+- **SVG 甘特图** — 扫描 Vault .md 文件的 `node_type` frontmatter
+- **深度分组** — 项目 → 阶段 → 史诗 → 任务 → 子任务
+- **进度条** + 依赖箭头
 
-### Named Pipe + ACP (Phase 5)
-- **Context Pipe Server** — `\\.\pipe\obsidian-ai-terminal` (JSON-RPC 2.0)
-- **Vault read/write, note control, terminal sendKeys** from any local process
-- **ACP multi-agent** — invoke Claude Code, Codex, Gemini CLI in parallel
-- **wmux integration** — bidirectional Named Pipe for terminal session control (planned)
+### Named Pipe + ACP（Phase 5）
+- **Context Pipe Server** — `\\.\pipe\obsidian-ai-terminal`（JSON-RPC 2.0）
+- **Vault 读写、笔记控制、终端 sendKeys** — 任意本地进程可调用
+- **ACP 多 Agent** — 并行调用 Claude Code、Codex、Gemini CLI
+- **wmux 集成** — 双向 Named Pipe 终端会话控制（计划中）
 
-## How It Works
+## 工作原理
 
 ```
-                  macOS/Linux                          Windows
+              macOS/Linux                            Windows
 xterm.js ←→ pipe ←→ pty-helper.py (PTY) ←→ shell    xterm.js ←→ pipe ←→ conpty-bridge.exe (ConPTY) ←→ shell
 ```
 
-Both backends use the same protocol:
-- stdin/stdout pipes for I/O relay
-- Custom escape sequence `\x1b]resize;cols;rows\x07` for terminal resize
+两个后端使用相同的协议：
+- stdin/stdout 管道进行 I/O 中继
+- 自定义转义序列 `\x1b]resize;cols;rows\x07` 进行终端缩放
 
-## Installation
+## 安装
 
 ### macOS / Linux
 
-1. Download the latest release (`main.js`, `manifest.json`, `styles.css`, `pty-helper.py`)
-2. Create folder: `<your-vault>/.obsidian/plugins/obsidian-ai-terminal/`
-3. Copy the 4 files into that folder
-4. Restart Obsidian → Settings → Community Plugins → Enable "AI Terminal"
+1. 下载最新发布版（`main.js`、`manifest.json`、`styles.css`、`pty-helper.py`）
+2. 创建文件夹：`<你的vault>/.obsidian/plugins/obsidian-ai-terminal/`
+3. 将 4 个文件复制到该文件夹
+4. 重启 Obsidian → 设置 → 社区插件 → 启用 "AI Terminal"
 
-**Requirements**:
-- Python 3 (ships with macOS; install via `sudo apt install python3` on Linux)
-- **Linux**: Obsidian **AppImage** recommended (Snap/Flatpak may sandbox `child_process`)
+**依赖**：
+- Python 3（macOS 自带；Linux 可通过 `sudo apt install python3` 安装）
+- **Linux**：推荐使用 Obsidian **AppImage**（Snap/Flatpak 可能会沙箱化 `child_process`）
 
 ### Windows
 
-1. Download the latest release (`main.js`, `manifest.json`, `styles.css`, `conpty-bridge.exe`)
-2. Create folder: `<your-vault>\.obsidian\plugins\obsidian-ai-terminal\`
-3. Copy the 4 files into that folder
-4. Restart Obsidian → Settings → Community Plugins → Enable "AI Terminal"
+1. 下载最新发布版（`main.js`、`manifest.json`、`styles.css`、`conpty-bridge.exe`）
+2. 创建文件夹：`<你的vault>\.obsidian\plugins\obsidian-ai-terminal\`
+3. 将 4 个文件复制到该文件夹
+4. 重启 Obsidian → 设置 → 社区插件 → 启用 "AI Terminal"
 
-**Requirement**: Windows 10 version 1809 or later (for ConPTY support)
+**依赖**：Windows 10 1809 或更高版本（ConPTY 支持）
 
-### From Source
+### 从源码构建
 
 ```bash
 git clone https://github.com/Evan-miwillbe/obsidian-ai-terminal.git
@@ -99,118 +102,118 @@ npm install
 npm run build
 ```
 
-For the Windows ConPTY bridge:
+Windows ConPTY 桥接：
 ```bash
 cd conpty-bridge
 cargo build --release
-# Output: target/release/conpty-bridge.exe
+# 输出：target/release/conpty-bridge.exe
 ```
 
-## Usage
+## 使用方法
 
-### Open a terminal
-- **Command palette**: `AI Terminal: Open terminal`
-- **Ribbon icon**: Click the terminal icon in the left sidebar
+### 打开终端
+- **命令面板**：`AI Terminal: Open terminal`
+- **侧边栏图标**：点击左侧边栏的终端图标
 
-### Open with AI preset
-- **Command palette**: `AI Terminal: Open Claude Code`
-- **Command palette**: `AI Terminal: Open Gemini CLI`
+### 使用 AI 预设打开
+- **命令面板**：`AI Terminal: Open Claude Code`
+- **命令面板**：`AI Terminal: Open Gemini CLI`
 
-### Custom presets
-Go to **Settings → AI Terminal → Presets** to add your own:
+### 自定义预设
+前往 **设置 → AI Terminal → 预设** 添加你自己的：
 
-| Name | Command |
-|------|---------|
+| 名称 | 命令 |
+|------|------|
 | Claude Code | `claude` |
 | Gemini CLI | `gemini` |
 | Aider | `aider` |
-| Shell | *(empty = default shell)* |
+| Shell | *（留空 = 默认 shell）* |
 
-## Settings
+## 设置
 
-| Setting | macOS/Linux Default | Windows Default | Description |
-|---------|-------------------|-----------------|-------------|
-| Default shell | `$SHELL` or `/bin/zsh` | `powershell.exe` | Shell to launch |
-| Working directory | Vault root | Vault root | Override with custom path |
-| Font size | 14 | 14 | Terminal font size (10–24) |
-| Font family | Cascadia Code, Consolas, ... | Cascadia Code, Consolas, ... | CSS font-family |
-| Presets | Shell, Claude Code, Gemini CLI | Shell, Claude Code, Gemini CLI | Customizable CLI presets |
+| 设置项 | macOS/Linux 默认值 | Windows 默认值 | 说明 |
+|--------|-------------------|---------------|------|
+| 默认 Shell | `$SHELL` 或 `/bin/zsh` | `powershell.exe` | 启动的 Shell |
+| 工作目录 | Vault 根目录 | Vault 根目录 | 可自定义路径 |
+| 字体大小 | 14 | 14 | 终端字体大小（10-24） |
+| 字体族 | Cascadia Code, Consolas, ... | Cascadia Code, Consolas, ... | CSS font-family |
+| 预设 | Shell, Claude Code, Gemini CLI | Shell, Claude Code, Gemini CLI | 可自定义 CLI 预设 |
 
-## Architecture
+## 架构
 
 ```
 src/
-├── main.ts              # Plugin entry — commands, subsystem init, lifecycle
-├── TerminalView.ts      # xterm.js terminal (Obsidian ItemView)
-├── PtyProcess.ts        # Platform-aware PTY process manager
-├── pty-helper.py        # macOS/Linux: Python 3 PTY allocator + I/O relay
-├── presets.ts           # Default AI CLI presets
-├── settings.ts          # Plugin settings & UI
-├── watchdog.ts          # Vault change detection → ContextIndex
-├── contextPipeServer.ts # Named Pipe server (JSON-RPC 2.0)
-├── acpLayer.ts          # ACP multi-agent (invoke, cancel, parallel)
-├── otCommand.ts         # /ot natural language schedule modal
-├── vaultQuery.ts        # /search, /backlinks, /links
-├── logWriter.ts         # _logs folder append-only log writer
-├── hubGenerator.ts      # Hub generation engine (progressive summary)
-├── scheduler.ts         # Cron scheduler (claude -p execution)
-├── SchemaMapView.ts     # Schema map SVG (dimension → hub → deploy)
-├── RoadmapView.ts       # Roadmap Gantt chart (SVG)
-├── deployRegistry.ts    # Deploy registry (symlink/copy management)
-├── ruleSync.ts          # Rule sync (Harness → LLM configs)
-├── vaultIndexer.ts      # Vault metadata JSON dump
-└── contextSync.ts       # Context sync script generator
+├── main.ts              # 插件入口 — 命令、子系统初始化、生命周期
+├── TerminalView.ts      # xterm.js 终端（Obsidian ItemView）
+├── PtyProcess.ts        # 跨平台 PTY 进程管理器
+├── pty-helper.py        # macOS/Linux: Python 3 PTY 分配器 + I/O 中继
+├── presets.ts           # 默认 AI CLI 预设
+├── settings.ts          # 插件设置 & UI
+├── watchdog.ts          # Vault 变更检测 → ContextIndex
+├── contextPipeServer.ts # Named Pipe 服务器（JSON-RPC 2.0）
+├── acpLayer.ts          # ACP 多 Agent（调用、取消、并行）
+├── otCommand.ts         # /ot 自然语言调度模态框
+├── vaultQuery.ts        # /search、/backlinks、/links
+├── logWriter.ts         # _logs 文件夹追加写入日志
+├── hubGenerator.ts      # Hub 生成引擎（渐进式摘要）
+├── scheduler.ts         # Cron 调度器（claude -p 执行）
+├── SchemaMapView.ts     # Schema Map SVG（维度 → Hub → 部署）
+├── RoadmapView.ts       # Roadmap 甘特图（SVG）
+├── deployRegistry.ts    # 部署注册表（符号链接/复制管理）
+├── ruleSync.ts          # 规则同步（Harness → LLM 配置）
+├── vaultIndexer.ts      # Vault 元数据 JSON 导出
+└── contextSync.ts       # Context 同步脚本生成器
 
 scripts/
-├── mcp-schedule-server.mjs  # Standalone MCP stdio server (schedule CRUD)
-└── antigravity_extract.py   # Antigravity conversation extractor
+├── mcp-schedule-server.mjs  # 独立 MCP stdio 服务器（schedule CRUD）
+└── antigravity_extract.py   # Antigravity 对话提取器
 
-conpty-bridge/               # Windows: Rust ConPTY bridge
+conpty-bridge/               # Windows: Rust ConPTY 桥接
 ```
 
-### Key design decisions
+### 关键设计决策
 
-| Decision | Rationale |
-|----------|-----------|
-| Python PTY (macOS/Linux) | No native modules; `pty` module ships with the OS |
-| Rust ConPTY bridge (Windows) | Single static binary (~400KB); no Python/runtime dependency |
-| Same resize protocol | `\x1b]resize;cols;rows\x07` — platform-agnostic, parsed by both backends |
-| Login shell (`-l`) on macOS | Loads user's PATH config (nvm, homebrew, etc.) |
-| Job Object on Windows | Ensures child processes are killed when bridge exits |
+| 决策 | 原因 |
+|------|------|
+| Python PTY（macOS/Linux） | 无原生模块；`pty` 模块系统自带 |
+| Rust ConPTY 桥接（Windows） | 单个静态二进制（~400KB）；无 Python/运行时依赖 |
+| 统一的 resize 协议 | `\x1b]resize;cols;rows\x07` — 跨平台通用，两个后端都能解析 |
+| macOS 使用登录 Shell（`-l`） | 加载用户的 PATH 配置（nvm、homebrew 等） |
+| Windows 使用 Job Object | 确保桥接退出时子进程也被终止 |
 
-## Roadmap
+## 路线图
 
-- [x] Phase 1: macOS + Windows + Linux terminal
-- [x] Phase 2: Vault intelligence (/ot, MCP, queries, logs, hub generator)
-- [x] Phase 3: Schema map (dimension → hub build → deploy)
-- [x] Phase 4: Roadmap view (SVG Gantt chart)
-- [x] Phase 5-A: Named Pipe context server + injector
-- [x] Phase 5-B: ACP multi-agent orchestration
-- [x] Phase 5-C: Multiple terminal tabs, split panes, close confirmation, theme-aware UI
-- [ ] wmux integration (bidirectional Named Pipe terminal control)
-- [ ] Linux Obsidian GUI test (community plugin registration blocker)
-- [ ] Community plugin store registration
+- [x] Phase 1: macOS + Windows + Linux 终端
+- [x] Phase 2: Vault 智能功能（/ot、MCP、查询、日志、Hub 生成器）
+- [x] Phase 3: Schema Map（维度 → Hub 构建 → 部署）
+- [x] Phase 4: Roadmap 视图（SVG 甘特图）
+- [x] Phase 5-A: Named Pipe Context Server + 注入器
+- [x] Phase 5-B: ACP 多 Agent 编排
+- [x] Phase 5-C: 多终端标签、分栏面板、关闭确认、主题自适应 UI
+- [ ] wmux 集成（双向 Named Pipe 终端控制）
+- [ ] Linux Obsidian GUI 测试（社区插件注册的前置条件）
+- [ ] 社区插件商店注册
 
-## Building the ConPTY Bridge (Windows)
+## 构建 ConPTY 桥接（Windows）
 
-The ConPTY bridge must be compiled on Windows (or cross-compiled):
+ConPTY 桥接必须在 Windows 上编译（或交叉编译）：
 
 ```bash
-# On Windows:
+# 在 Windows 上：
 cd conpty-bridge
 cargo build --release
 # → target\release\conpty-bridge.exe (~400KB)
 
-# Copy to plugin folder:
+# 复制到插件文件夹：
 copy target\release\conpty-bridge.exe <vault>\.obsidian\plugins\obsidian-ai-terminal\
 ```
 
-## License
+## 许可证
 
 MIT
 
-## Credits
+## 致谢
 
-- [xterm.js](https://xtermjs.org/) — Terminal UI rendering
-- [windows-rs](https://github.com/microsoft/windows-rs) — Rust Windows API bindings
-- Built with [Claude Code](https://claude.ai/claude-code)
+- [xterm.js](https://xtermjs.org/) — 终端 UI 渲染
+- [windows-rs](https://github.com/microsoft/windows-rs) — Rust Windows API 绑定
+- 使用 [Claude Code](https://claude.ai/claude-code) 构建

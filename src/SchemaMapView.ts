@@ -16,7 +16,7 @@ import * as path from "path";
 
 export const VIEW_TYPE_SCHEMA_MAP = "schema-map-view";
 
-/* ── SVG Graph 상수 ─────────────────────────────── */
+/* ── SVG Graph 常量 ─────────────────────────────── */
 
 const NODE_W = 140;
 const NODE_H_BASE = 36;
@@ -46,7 +46,7 @@ const COLORS = {
   labelText: "#b0c0d0",
 };
 
-/* ── 그래프 데이터 타입 ──────────────────────────── */
+/* ── 图表数据类型 ──────────────────────────── */
 
 interface GNode {
   id: string;
@@ -101,7 +101,7 @@ export class SchemaMapView extends ItemView {
     container.empty();
     container.addClass("schema-map-container");
 
-    // 툴바
+    // 工具栏
     const toolbar = container.createDiv({ cls: "schema-map-toolbar" });
     const addDimBtn = toolbar.createEl("button", { text: "+ Dimension", cls: "schema-map-btn" });
     addDimBtn.addEventListener("click", () => this.handleAddDimension());
@@ -112,15 +112,15 @@ export class SchemaMapView extends ItemView {
     const addBtn = toolbar.createEl("button", { text: "+ Project", cls: "schema-map-btn" });
     addBtn.addEventListener("click", () => this.handleAddProject());
 
-    // 그래프 영역
+    // 图表区域
     this.graphEl = container.createDiv({ cls: "schema-map-graph" });
 
-    // 데이터 로드
+    // 加载数据
     await this.registry.loadRegistry();
     this.registry.registerCurrentPc();
     await this.registry.verifyAll();
 
-    // 디멘션 freshness 체크
+    // 检查 Dimension freshness
     for (const project of this.registry.getAllProjects()) {
       await this.registry.checkDimensionFreshness(project);
     }
@@ -133,7 +133,7 @@ export class SchemaMapView extends ItemView {
     this.graphEl = null;
   }
 
-  /* ── 전체 렌더 ── */
+  /* ── 整体渲染 ── */
 
   private renderAllGraphs(): void {
     if (!this.graphEl) return;
@@ -153,7 +153,7 @@ export class SchemaMapView extends ItemView {
     }
   }
 
-  /* ── 프로젝트별 그래프 ── */
+  /* ── 按项目渲染图表 ── */
 
   private renderProjectGraph(project: string): void {
     if (!this.graphEl) return;
@@ -163,9 +163,9 @@ export class SchemaMapView extends ItemView {
     const nodes: GNode[] = [];
     const edges: GEdge[] = [];
 
-    // ── 노드 배치 계산 ──
+    // ── 节点布局计算 ──
 
-    // 1열: 디멘션 노드
+    // 第1列: Dimension 节点
     const hub = this.registry.getHubConfig(project);
     const dims = hub.dimensions;
 
@@ -186,7 +186,7 @@ export class SchemaMapView extends ItemView {
       });
     });
 
-    // 2열: Chat Sources (레지스트리에서 로드)
+    // 第2列: Chat Sources (从注册表加载)
     const sources = this.registry.getSources(project);
 
     const leftX = dimX + (dims.length > 0 ? NODE_W + COL_GAP : 0);
@@ -207,7 +207,7 @@ export class SchemaMapView extends ItemView {
       });
     });
 
-    // 3열: Project + Hub 파일
+    // 第3列: Project + Hub 文件
     const centerX = leftX + NODE_W + COL_GAP;
     const hubFiles = ["HUB.md", "SOURCES.md", "CONTEXT.md"];
     const projectNodeH = NODE_H_BASE + hubFiles.length * PROP_LINE_H;
@@ -227,7 +227,7 @@ export class SchemaMapView extends ItemView {
       stroke: COLORS.projectStroke,
     });
 
-    // 오른쪽 열: Deploy Targets (현재 PC 우선)
+    // 右侧列: Deploy Targets (当前 PC 优先)
     const rightX = centerX + NODE_W + COL_GAP;
     const sortedPcs = [...pcs].sort((a, b) => (a.id === currentPcId ? -1 : b.id === currentPcId ? 1 : 0));
 
@@ -263,8 +263,8 @@ export class SchemaMapView extends ItemView {
       }
     }
 
-    // ── 엣지 ──
-    // Dimensions → Project (빌드 상태에 따라 색상 변경)
+    // ── 边 ──
+    // Dimensions → Project (根据构建状态改变颜色)
     dims.forEach((_, i) => {
       const label = hub.buildStatus === "stale" ? "stale" : hub.buildStatus === "synced" ? "synced" : "build";
       edges.push({ from: `dim-${i}`, to: "project", label });
@@ -280,14 +280,14 @@ export class SchemaMapView extends ItemView {
       }
     }
 
-    // ── SVG 크기 ──
+    // ── SVG 尺寸 ──
     const maxNodeBottom = Math.max(
       ...nodes.map((n) => n.y + n.h),
     );
     const svgW = rightX + NODE_W + PAD;
     const svgH = maxNodeBottom + PAD;
 
-    // ── SVG 렌더 ──
+    // ── SVG 渲染 ──
     const wrapper = this.graphEl.createDiv({ cls: "schema-map-project-wrapper" });
 
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -296,14 +296,14 @@ export class SchemaMapView extends ItemView {
     svg.setAttribute("viewBox", `0 0 ${svgW} ${svgH}`);
     svg.classList.add("schema-map-svg");
 
-    // 배경
+    // 背景
     const bgRect = svgEl("rect", {
       x: "0", y: "0", width: String(svgW), height: String(svgH),
       rx: "8", fill: COLORS.bg,
     });
     svg.appendChild(bgRect);
 
-    // 엣지 먼저 (노드 아래에 깔림)
+    // 先绘制边（在节点下方）
     const nodeMap = new Map(nodes.map((n) => [n.id, n]));
     for (const edge of edges) {
       const fromNode = nodeMap.get(edge.from);
@@ -315,7 +315,7 @@ export class SchemaMapView extends ItemView {
       const x2 = toNode.x;
       const y2 = toNode.y + toNode.h / 2;
 
-      // 엣지 색상: synced=녹색, stale=노란색, 기본=청록
+      // 边颜色: synced=绿色, stale=黄色, 默认=青色
       let edgeColor = COLORS.line;
       if (edge.label === "synced") edgeColor = "#4a8a4a";
       else if (edge.label === "stale") edgeColor = "#aa8a2a";
@@ -328,7 +328,7 @@ export class SchemaMapView extends ItemView {
       });
       svg.appendChild(line);
 
-      // 엣지 라벨
+      // 边标签
       const mx = (x1 + x2) / 2;
       const my = (y1 + y2) / 2;
       const labelG = svgEl("g", {});
@@ -351,11 +351,11 @@ export class SchemaMapView extends ItemView {
       svg.appendChild(labelG);
     }
 
-    // 노드
+    // 节点
     for (const node of nodes) {
       const g = svgEl("g", { cursor: "pointer" });
 
-      // 카드 배경
+      // 卡片背景
       const rect = svgEl("rect", {
         x: String(node.x), y: String(node.y),
         width: String(node.w), height: String(node.h),
@@ -363,7 +363,7 @@ export class SchemaMapView extends ItemView {
       });
       g.appendChild(rect);
 
-      // 타이틀
+      // 标题
       const title = svgEl("text", {
         x: String(node.x + 10), y: String(node.y + 22),
         fill: COLORS.text, "font-size": "13", "font-weight": "bold", "font-family": "sans-serif",
@@ -371,7 +371,7 @@ export class SchemaMapView extends ItemView {
       title.textContent = node.title;
       g.appendChild(title);
 
-      // 속성 (bullet list)
+      // 属性（列表）
       node.props.forEach((prop, i) => {
         const propText = svgEl("text", {
           x: String(node.x + 10), y: String(node.y + 22 + (i + 1) * PROP_LINE_H),
@@ -381,7 +381,7 @@ export class SchemaMapView extends ItemView {
         g.appendChild(propText);
       });
 
-      // 클릭 핸들러
+      // 点击处理器
       if (node.data) {
         g.addEventListener("click", () => {
           this.handleNodeClick(node);
@@ -394,17 +394,17 @@ export class SchemaMapView extends ItemView {
     wrapper.appendChild(svg);
   }
 
-  /* ── 노드 클릭 ── */
+  /* ── 节点点击 ── */
 
   private handleNodeClick(node: GNode): void {
     if (node.data?.type === "dimension") {
-      // 디멘션 클릭: 해당 노트를 에디터에서 열기
+      // 点击 Dimension: 在编辑器中打开对应笔记
       const dim = node.data.dimension as DimensionEntry;
       const file = this.app.vault.getAbstractFileByPath(dim.path);
       if (file) {
         this.app.workspace.getLeaf(false).openFile(file as any);
       } else {
-        new Notice(`파일을 찾을 수 없습니다: ${dim.path}`);
+        new Notice(`找不到文件: ${dim.path}`);
       }
       return;
     }
@@ -438,7 +438,7 @@ export class SchemaMapView extends ItemView {
     }
   }
 
-  /* ── Source 편집 모달 ── */
+  /* ── Source 编辑弹窗 ── */
 
   private openSourceModal(project: string, source: ChatSourceEntry): void {
     new SourceEditModal(this.app, source, async (updated) => {
@@ -449,7 +449,7 @@ export class SchemaMapView extends ItemView {
     }).open();
   }
 
-  /* ── Deploy 모달 ── */
+  /* ── Deploy 弹窗 ── */
 
   private openDeployModal(
     project: string, tool: string, pc: PcEntry, existingEntry: DeployEntry | null,
@@ -459,7 +459,7 @@ export class SchemaMapView extends ItemView {
       const vaultPath = (this.app.vault.adapter as any).basePath as string;
       const hubPath = this.findHubPath(project);
 
-      // hubPath 없으면 볼트 프로젝트 폴더 기반으로 추정
+      // hubPath 不存在时，基于 vault 项目文件夹推测
       const hubTarget = hubPath
         ? path.join(vaultPath, hubPath)
         : path.join(vaultPath, "10_Project", project, "HUB.md");
@@ -527,16 +527,16 @@ export class SchemaMapView extends ItemView {
     }).open();
   }
 
-  /* ── Dimension 추가 ── */
+  /* ── 添加 Dimension ── */
 
   private handleAddDimension(): void {
     const projects = this.registry.getAllProjects();
     if (projects.length === 0) {
-      new Notice("먼저 프로젝트를 추가하세요");
+      new Notice("请先添加项目");
       return;
     }
 
-    // 프로젝트가 1개면 바로, 여러 개면 선택
+    // 项目只有1个则直接使用，多个则选择
     const project = projects.length === 1 ? projects[0] : null;
     if (project) {
       this.openDimensionPicker(project);
@@ -548,7 +548,7 @@ export class SchemaMapView extends ItemView {
   }
 
   private openDimensionPicker(project: string): void {
-    // 볼트의 모든 .md 파일에서 선택
+    // 从 vault 的所有 .md 文件中选择
     const files = this.app.vault.getMarkdownFiles();
     new DimensionPickerModal(this.app, files, async (selected) => {
       for (const file of selected) {
@@ -556,16 +556,16 @@ export class SchemaMapView extends ItemView {
       }
       await this.registry.saveRegistry();
       this.renderAllGraphs();
-      new Notice(`${selected.length}개 디멘션 추가됨`);
+      new Notice(`已添加 ${selected.length} 个 Dimension`);
     }).open();
   }
 
-  /* ── Hub 빌드 ── */
+  /* ── 构建 Hub ── */
 
   private async handleBuildHub(): Promise<void> {
     const projects = this.registry.getAllProjects();
     if (projects.length === 0) {
-      new Notice("프로젝트가 없습니다");
+      new Notice("没有项目");
       return;
     }
 
@@ -575,9 +575,9 @@ export class SchemaMapView extends ItemView {
 
       try {
         const hubPath = await this.registry.buildHub(project);
-        new Notice(`빌드 완료: ${hubPath}`);
+        new Notice(`构建完成: ${hubPath}`);
       } catch (err: any) {
-        new Notice(`빌드 실패 (${project}): ${err.message}`);
+        new Notice(`构建失败 (${project}): ${err.message}`);
       }
     }
 
@@ -585,7 +585,7 @@ export class SchemaMapView extends ItemView {
     this.renderAllGraphs();
   }
 
-  /* ── 유틸 ── */
+  /* ── 工具函数 ── */
 
   private findHubPath(project: string): string | null {
     const mdFiles = this.app.vault.getMarkdownFiles();
@@ -631,7 +631,7 @@ class DeployModal extends Modal {
     info.createEl("p", { text: `Tool: ${this.tool} (${TOOL_LABELS[this.tool]})` });
     info.createEl("p", { text: `PC: ${this.pc.id}` });
 
-    // 레포 경로
+    // 仓库路径
     const repoGroup = contentEl.createDiv({ cls: "deploy-modal-field" });
     repoGroup.createEl("label", { text: "Repository path:" });
     this.repoPathInput = repoGroup.createEl("input", { type: "text", cls: "deploy-modal-input" });
@@ -643,7 +643,7 @@ class DeployModal extends Modal {
       if (repo) this.repoPathInput.value = repo;
     }
 
-    // 자동 대상 경로
+    // 自动目标路径
     const targetGroup = contentEl.createDiv({ cls: "deploy-modal-field" });
     targetGroup.createEl("label", { text: "Target path (auto):" });
     const targetDisplay = targetGroup.createEl("code", { cls: "deploy-modal-target", text: "..." });
@@ -656,7 +656,7 @@ class DeployModal extends Modal {
       targetDisplay.textContent = getToolTargetPath(this.tool, this.repoPathInput.value);
     }
 
-    // 파일 체크박스
+    // 文件复选框
     const filesGroup = contentEl.createDiv({ cls: "deploy-modal-field" });
     filesGroup.createEl("label", { text: "Files to deploy:" });
     const filesRow = filesGroup.createDiv({ cls: "deploy-modal-checkbox-row" });
@@ -670,7 +670,7 @@ class DeployModal extends Modal {
       label.appendText(` ${file}`);
     }
 
-    // 방법 라디오
+    // 方式单选
     const methodGroup = contentEl.createDiv({ cls: "deploy-modal-field" });
     methodGroup.createEl("label", { text: "Method:" });
     const methodRow = methodGroup.createDiv({ cls: "deploy-modal-radio-row" });
@@ -684,7 +684,7 @@ class DeployModal extends Modal {
       label.appendText(` ${m}${m === "symlink" ? " (recommended)" : ""}`);
     }
 
-    // 버튼
+    // 按钮
     const btnRow = contentEl.createDiv({ cls: "modal-button-container" });
     btnRow.createEl("button", { text: "Deploy", cls: "mod-cta" }).addEventListener("click", () => {
       const repoPath = this.repoPathInput?.value?.trim();
@@ -741,7 +741,7 @@ class SourceEditModal extends Modal {
     const { contentEl } = this;
     contentEl.createEl("h3", { text: `Edit Source: ${this.source.tool}` });
 
-    // Status 선택
+    // 选择状态
     const statusGroup = contentEl.createDiv({ cls: "deploy-modal-field" });
     statusGroup.createEl("label", { text: "Status:" });
     const statusSelect = statusGroup.createEl("select", { cls: "deploy-modal-input" });
@@ -769,7 +769,7 @@ class SourceEditModal extends Modal {
     noteInput.value = this.source.note;
     noteInput.placeholder = "optional memo";
 
-    // 버튼
+    // 按钮
     const btnRow = contentEl.createDiv({ cls: "modal-button-container" });
     btnRow.createEl("button", { text: "Save", cls: "mod-cta" }).addEventListener("click", () => {
       this.close();
@@ -786,7 +786,7 @@ class SourceEditModal extends Modal {
   onClose(): void { this.contentEl.empty(); }
 }
 
-/* ── SVG 유틸 ── */
+/* ── SVG 工具函数 ── */
 
 function svgEl(tag: string, attrs: Record<string, string>): SVGElement {
   const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
@@ -828,7 +828,7 @@ class SelectProjectModal extends Modal {
 
   onOpen(): void {
     const { contentEl } = this;
-    contentEl.createEl("h3", { text: "프로젝트 선택" });
+    contentEl.createEl("h3", { text: "选择项目" });
     for (const p of this.projects) {
       const btn = contentEl.createEl("button", { text: p, cls: "schema-map-btn" });
       btn.style.display = "block";
@@ -855,7 +855,7 @@ class DimensionPickerModal extends SuggestModal<TFile> {
     private onDone: (selected: TFile[]) => void,
   ) {
     super(app);
-    this.setPlaceholder("디멘션 .md 파일을 선택하세요 (Enter로 추가, Esc로 완료)");
+    this.setPlaceholder("选择 Dimension .md 文件 (Enter 添加, Esc 完成)");
   }
 
   getSuggestions(query: string): TFile[] {

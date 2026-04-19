@@ -1,12 +1,12 @@
 import { App, TFile, debounce } from "obsidian";
 
-// ── 컨텍스트 인덱스 스키마 ──
+// ── ContextIndex 模式定义 ──
 
 export interface ContextIndex {
   timestamp: string;
   activeNote: ActiveNoteContext | null;
-  recentNotes: string[];           // 최근 수정된 노트 경로 (최대 10개)
-  projectHubs: ProjectHubRef[];    // 프로젝트 허브 목록
+  recentNotes: string[];           // 最近修改的笔记路径（最多10个）
+  projectHubs: ProjectHubRef[];    // 项目 Hub 列表
   vaultStats: VaultStats;
 }
 
@@ -18,7 +18,7 @@ export interface ActiveNoteContext {
   links: string[];        // outgoing links
   backlinks: string[];    // incoming links
   headings: string[];     // h1~h3
-  excerpt: string;        // 첫 200자
+  excerpt: string;        // 前200字
 }
 
 export interface ProjectHubRef {
@@ -32,7 +32,7 @@ export interface VaultStats {
   totalTags: number;
 }
 
-// ── Watchdog: 볼트 변경 감지 → 컨텍스트 인덱스 갱신 ──
+// ── Watchdog: Vault 变更检测 → ContextIndex 更新 ──
 
 export class Watchdog {
   private index: ContextIndex;
@@ -47,7 +47,7 @@ export class Watchdog {
     return this.index;
   }
 
-  /** 변경 알림 구독 */
+  /** 订阅变更通知 */
   onIndexChange(listener: (index: ContextIndex) => void): () => void {
     this.listeners.push(listener);
     return () => {
@@ -55,18 +55,18 @@ export class Watchdog {
     };
   }
 
-  /** 활성 노트 설정 (옵시디언의 active-leaf-change 이벤트에서 호출) */
+  /** 设置活动笔记（从 Obsidian 的 active-leaf-change 事件中调用） */
   setActiveNote(filePath: string | null): void {
     this.activeFilePath = filePath;
     this.rebuild();
   }
 
-  /** 전체 인덱스 재빌드 */
+  /** 全量索引重建 */
   rebuild(): void {
     const now = new Date().toISOString();
     const files = this.app.vault.getMarkdownFiles();
 
-    // 활성 노트 컨텍스트
+    // 活动笔记上下文
     let activeNote: ActiveNoteContext | null = null;
     if (this.activeFilePath) {
       const file = this.app.vault.getAbstractFileByPath(this.activeFilePath);
@@ -75,11 +75,11 @@ export class Watchdog {
       }
     }
 
-    // 최근 수정 노트 (mtime 기준 상위 10개)
+    // 最近修改的笔记（按 mtime 排序前10个）
     const sorted = [...files].sort((a, b) => b.stat.mtime - a.stat.mtime);
     const recentNotes = sorted.slice(0, 10).map((f) => f.path);
 
-    // 프로젝트 허브 탐색
+    // 探索项目 Hub
     const projectHubs: ProjectHubRef[] = [];
     for (const file of files) {
       if (file.basename.startsWith("HUB_") || file.basename.startsWith("허브_")) {
@@ -93,7 +93,7 @@ export class Watchdog {
       }
     }
 
-    // 볼트 통계
+    // Vault 统计
     const allTags = new Set<string>();
     for (const file of files) {
       const cache = this.app.metadataCache.getFileCache(file);
@@ -113,18 +113,18 @@ export class Watchdog {
       },
     };
 
-    // 리스너에 알림
+    // 通知监听器
     for (const listener of this.listeners) {
       try { listener(this.index); } catch { /* ignore */ }
     }
   }
 
-  /** 특정 노트의 컨텍스트 빌드 */
+  /** 构建特定笔记的上下文 */
   private buildNoteContext(file: TFile): ActiveNoteContext {
     const cache = this.app.metadataCache.getFileCache(file);
     const fm = cache?.frontmatter ?? null;
 
-    // 태그
+    // 标签
     const tags: string[] = [];
     if (fm?.tags) {
       const fmTags = Array.isArray(fm.tags) ? fm.tags : [fm.tags];
@@ -137,7 +137,7 @@ export class Watchdog {
       }
     }
 
-    // 링크
+    // 链接
     const links: string[] = [];
     if (cache?.links) {
       for (const l of cache.links) {
@@ -145,7 +145,7 @@ export class Watchdog {
       }
     }
 
-    // 백링크
+    // 反向链接
     const backlinks: string[] = [];
     const resolved = this.app.metadataCache.resolvedLinks;
     for (const sourcePath in resolved) {
@@ -155,7 +155,7 @@ export class Watchdog {
       }
     }
 
-    // 헤딩
+    // 标题
     const headings = (cache?.headings ?? [])
       .filter((h) => h.level <= 3)
       .map((h) => h.heading);
@@ -168,7 +168,7 @@ export class Watchdog {
       links,
       backlinks,
       headings,
-      excerpt: "", // 비동기 읽기가 필요해서 빈 문자열 (나중에 확장)
+      excerpt: "", // 需要异步读取，暂留空字符串（后续扩展）
     };
   }
 

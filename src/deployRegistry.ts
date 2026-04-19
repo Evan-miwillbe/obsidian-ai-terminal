@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 
-/* ── 타입 ────────────────────────────────────────── */
+/* ── 类型 ────────────────────────────────────────── */
 
 export interface PcEntry {
   id: string;
@@ -32,19 +32,19 @@ export interface ChatSourceEntry {
   status: "extractable" | "reference_only" | "unavailable";
   rootPath: string;       // e.g. "$CLAUDE_ROOT/projects/..."
   format: string;         // e.g. "JSONL", "JSON", "protobuf"
-  note: string;           // 사용자 메모
+  note: string;           // 用户备注
 }
 
 export interface DimensionEntry {
-  path: string;        // 볼트 상대 경로 (e.g., "10_Project/하네스팩토리/아키텍처_설계.md")
-  label: string;       // 표시 이름 (basename)
+  path: string;        // Vault 相对路径 (e.g., "10_Project/하네스팩토리/아키텍처_설계.md")
+  label: string;       // 显示名称 (basename)
   addedAt: string;     // ISO 8601
 }
 
 export interface HubConfig {
   dimensions: DimensionEntry[];
   lastBuild: string | null;     // ISO 8601
-  hubPath: string | null;       // 빌드된 HUB .md 경로
+  hubPath: string | null;       // 已构建的 HUB .md 路径
   buildStatus: "synced" | "stale" | "never";
 }
 
@@ -55,7 +55,7 @@ export interface DeployRegistry {
   hubs: Record<string, HubConfig>;             // project → hub config
 }
 
-/* ── 상수 ────────────────────────────────────────── */
+/* ── 常量 ────────────────────────────────────────── */
 
 export const TOOL_TARGET_MAP: Record<string, (repo: string) => string> = {
   "claude-code": (repo) => path.join(repo, ".claude", "hub.md"),
@@ -113,7 +113,7 @@ export class DeployRegistryManager {
     return [...set].sort();
   }
 
-  /* ── Sources 관리 ── */
+  /* ── Sources 管理 ── */
 
   getSources(project: string): ChatSourceEntry[] {
     return this.registry.sources[project] ?? getDefaultSources();
@@ -161,7 +161,7 @@ export class DeployRegistryManager {
     await this.app.vault.adapter.write(this.registryPath, json);
   }
 
-  /* ── PC 관리 ── */
+  /* ── PC 管理 ── */
 
   registerCurrentPc(): PcEntry {
     const hostname = os.hostname();
@@ -218,7 +218,7 @@ export class DeployRegistryManager {
     hub.buildStatus = hub.dimensions.length > 0 ? "stale" : "never";
   }
 
-  /** 디멘션 파일의 mtime과 허브 빌드 시간 비교하여 buildStatus 갱신 */
+  /** 比较 dimension 文件的 mtime 与 hub 构建时间，更新 buildStatus */
   async checkDimensionFreshness(project: string): Promise<void> {
     const hub = this.getHubConfig(project);
     if (hub.dimensions.length === 0) {
@@ -248,18 +248,18 @@ export class DeployRegistryManager {
     hub.buildStatus = "synced";
   }
 
-  /** 디멘션 파일들을 읽어서 허브노트 빌드 */
+  /** 读取 dimension 文件并构建 hub 笔记 */
   async buildHub(project: string): Promise<string> {
     const hub = this.getHubConfig(project);
     if (hub.dimensions.length === 0) {
-      throw new Error("디멘션이 없습니다. 먼저 디멘션을 추가하세요.");
+      throw new Error("没有 dimension，请先添加 dimension。");
     }
 
     const sections: string[] = [];
     const now = new Date();
     const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
-    // 프론트매터
+    // frontmatter
     sections.push("---");
     sections.push(`id: hub_${project}`);
     sections.push(`type: hub`);
@@ -272,14 +272,14 @@ export class DeployRegistryManager {
     sections.push("---");
     sections.push("");
     sections.push(`# Hub: ${project}`);
-    sections.push(`> 자동 빌드 (${dateStr}) — ${hub.dimensions.length}개 디멘션`);
+    sections.push(`> 自动构建 (${dateStr}) — ${hub.dimensions.length} 个 dimension`);
     sections.push("");
 
-    // 각 디멘션 내용 합치기
+    // 合并各 dimension 内容
     for (const dim of hub.dimensions) {
       try {
         const content = await this.app.vault.adapter.read(dim.path);
-        // 프론트매터 제거
+        // 移除 frontmatter
         const stripped = content.replace(/^---[\s\S]*?---\n*/m, "");
         sections.push(`## ${dim.label}`);
         sections.push("");
@@ -289,18 +289,18 @@ export class DeployRegistryManager {
         sections.push("");
       } catch {
         sections.push(`## ${dim.label}`);
-        sections.push(`> ⚠️ 파일을 읽을 수 없습니다: ${dim.path}`);
+        sections.push(`> ⚠️ 无法读取文件: ${dim.path}`);
         sections.push("");
       }
     }
 
     const hubContent = sections.join("\n");
 
-    // 허브노트 경로 결정
+    // 确定 hub 笔记路径
     const projectName = project.split("/").pop() ?? project;
     const hubPath = hub.hubPath || `${project}/HUB_${projectName}.md`;
 
-    // 디렉토리 확보
+    // 确保目录存在
     const dir = hubPath.substring(0, hubPath.lastIndexOf("/"));
     if (dir) {
       const dirExists = await this.app.vault.adapter.exists(dir);
@@ -311,7 +311,7 @@ export class DeployRegistryManager {
 
     await this.app.vault.adapter.write(hubPath, hubContent);
 
-    // 상태 갱신
+    // 更新状态
     hub.hubPath = hubPath;
     hub.lastBuild = now.toISOString();
     hub.buildStatus = "synced";
@@ -342,7 +342,7 @@ export class DeployRegistryManager {
     );
   }
 
-  /* ── 검증 ── */
+  /* ── 验证 ── */
 
   verifyEntry(entry: DeployEntry): DeployEntry {
     if (entry.pc !== this.currentPcId) {
@@ -356,7 +356,7 @@ export class DeployRegistryManager {
         const targetExists = fs.existsSync(entry.symlinkPath);
         entry.status = targetExists ? "active" : "broken";
       } else {
-        // 일반 파일(copy 배포)
+        // 普通文件 (copy 方式 Deploy)
         entry.status = "active";
       }
     } catch {
@@ -376,7 +376,7 @@ export class DeployRegistryManager {
     return results;
   }
 
-  /* ── 배포 ── */
+  /* ── Deploy ── */
 
   async deployEntry(entry: DeployEntry): Promise<void> {
     const dir = path.dirname(entry.symlinkPath);
@@ -402,21 +402,21 @@ export class DeployRegistryManager {
         fs.unlinkSync(entry.symlinkPath);
       }
     } catch {
-      // 이미 없음
+      // 已不存在
     }
     entry.status = "none";
     entry.lastVerified = null;
     await this.saveRegistry();
   }
 
-  /* ── 심링크 (플랫폼 분기) ── */
+  /* ── Symlink (平台分支) ── */
 
   private createSymlink(target: string, linkPath: string): void {
     if (fs.existsSync(linkPath)) {
       try {
         fs.unlinkSync(linkPath);
       } catch {
-        // lstat로 broken symlink 삭제 시도
+        // 通过 lstat 尝试删除 broken symlink
         try { fs.unlinkSync(linkPath); } catch { /* noop */ }
       }
     }
@@ -437,7 +437,7 @@ export class DeployRegistryManager {
   }
 }
 
-/* ── 유틸 ── */
+/* ── 工具函数 ── */
 
 export function getDefaultSources(): ChatSourceEntry[] {
   return [

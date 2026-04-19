@@ -3,7 +3,7 @@ import type { AITerminalSettings } from "./settings";
 
 export const VIEW_TYPE_ROADMAP = "roadmap-view";
 
-// ── 태스크 프론트매터 스키마 ──
+// ── 任务 frontmatter 模式 ──
 
 interface TaskNode {
   id: string;
@@ -19,10 +19,10 @@ interface TaskNode {
   sprintEnd: number;
   tags: string[];
   filePath: string;
-  depth: number;       // 렌더링용 (parent chain depth)
+  depth: number;       // 渲染用 (parent chain depth)
 }
 
-// ── SVG 상수 ──
+// ── SVG 常量 ──
 
 const GANTT = {
   rowH: 32,
@@ -81,7 +81,7 @@ export class RoadmapView extends ItemView {
     container.empty();
     container.addClass("roadmap-container");
 
-    // 툴바
+    // 工具栏
     const toolbar = container.createDiv({ cls: "roadmap-toolbar" });
     const refreshBtn = toolbar.createEl("button", { text: "Refresh", cls: "schema-map-btn" });
     refreshBtn.addEventListener("click", () => this.refresh());
@@ -102,7 +102,7 @@ export class RoadmapView extends ItemView {
     this.render();
   }
 
-  // ── 태스크 스캔: 볼트에서 node_type 프론트매터를 가진 .md 수집 ──
+  // ── 任务扫描：从 vault 中收集含有 node_type frontmatter 的 .md 文件 ──
 
   private async scanTasks(): Promise<TaskNode[]> {
     const files = this.app.vault.getMarkdownFiles();
@@ -131,10 +131,10 @@ export class RoadmapView extends ItemView {
       });
     }
 
-    // depth 계산
+    // depth 计算
     this.computeDepth(tasks);
 
-    // 정렬: phase → depth → sprintStart
+    // 排序：phase → depth → sprintStart
     tasks.sort((a, b) => {
       if (a.phase !== b.phase) return a.phase.localeCompare(b.phase);
       if (a.depth !== b.depth) return a.depth - b.depth;
@@ -159,7 +159,7 @@ export class RoadmapView extends ItemView {
     tasks.forEach(getDepth);
   }
 
-  // ── 렌더 ──
+  // ── 渲染 ──
 
   private render(): void {
     if (!this.graphEl) return;
@@ -167,17 +167,17 @@ export class RoadmapView extends ItemView {
 
     if (this.tasks.length === 0) {
       this.graphEl.createEl("p", {
-        text: "로드맵에 표시할 태스크가 없습니다. node_type 프론트매터가 있는 .md 파일을 생성하세요.",
+        text: "Roadmap 中没有可显示的任务。请创建包含 node_type frontmatter 的 .md 文件。",
         cls: "roadmap-empty-msg",
       });
 
-      // 예시 표시
+      // 示例展示
       const example = this.graphEl.createEl("pre");
       example.style.fontSize = "12px";
       example.style.color = "#8090a8";
       example.textContent = `---
 id: task_001
-name: React 트리 컴포넌트
+name: React 树组件
 parent: epic_002
 node_type: task
 phase: Phase 1
@@ -192,7 +192,7 @@ tags: [frontend]
       return;
     }
 
-    // 스프린트 범위 계산
+    // Sprint 范围计算
     const maxSprint = Math.max(...this.tasks.map((t) => t.sprintEnd), 4);
     const sprintCount = maxSprint + 1;
 
@@ -205,20 +205,20 @@ tags: [frontend]
     svg.setAttribute("viewBox", `0 0 ${svgW} ${svgH}`);
     svg.classList.add("roadmap-svg");
 
-    // 배경
+    // 背景
     svg.appendChild(svgEl("rect", {
       x: "0", y: "0", width: String(svgW), height: String(svgH),
       rx: "8", fill: GCOLORS.bg,
     }));
 
-    // 헤더 배경
+    // Header 背景
     svg.appendChild(svgEl("rect", {
       x: String(GANTT.labelW), y: String(GANTT.padY),
       width: String(sprintCount * GANTT.sprintW), height: String(GANTT.headerH),
       fill: GCOLORS.headerBg,
     }));
 
-    // 스프린트 헤더
+    // Sprint Header
     for (let s = 0; s < sprintCount; s++) {
       const x = GANTT.labelW + s * GANTT.sprintW;
       const label = svgEl("text", {
@@ -229,7 +229,7 @@ tags: [frontend]
       label.textContent = `S${s + 1}`;
       svg.appendChild(label);
 
-      // 세로 그리드
+      // 纵向网格线
       svg.appendChild(svgEl("line", {
         x1: String(x), y1: String(GANTT.padY),
         x2: String(x), y2: String(svgH - GANTT.padX),
@@ -237,7 +237,7 @@ tags: [frontend]
       }));
     }
 
-    // 태스크 행
+    // 任务行
     const rowY0 = GANTT.padY + GANTT.headerH;
     const taskYMap = new Map<string, number>();
 
@@ -245,14 +245,14 @@ tags: [frontend]
       const y = rowY0 + i * GANTT.rowH;
       taskYMap.set(task.id, y + GANTT.rowH / 2);
 
-      // 행 배경 (짝/홀)
+      // 行背景（偶/奇）
       svg.appendChild(svgEl("rect", {
         x: "0", y: String(y),
         width: String(svgW), height: String(GANTT.rowH),
         fill: i % 2 === 0 ? GCOLORS.rowEven : GCOLORS.rowOdd,
       }));
 
-      // 라벨 (indent by depth)
+      // 标签（按 depth 缩进）
       const indent = GANTT.padX + task.depth * 16;
       const typeIcon = task.nodeType === "phase" ? "▸ " : task.nodeType === "epic" ? "◆ " : task.nodeType === "project" ? "◉ " : "  ";
       const labelEl = svgEl("text", {
@@ -270,7 +270,7 @@ tags: [frontend]
       });
       svg.appendChild(labelEl);
 
-      // 상태 뱃지
+      // 状态标签
       const statusX = GANTT.labelW - 60;
       const statusEl = svgEl("text", {
         x: String(statusX), y: String(y + 21),
@@ -280,13 +280,13 @@ tags: [frontend]
       statusEl.textContent = task.status;
       svg.appendChild(statusEl);
 
-      // 간트 바
+      // Gantt 条
       if (task.nodeType !== "project") {
         const barX = GANTT.labelW + (task.sprintStart - 1) * GANTT.sprintW;
         const barW = (task.sprintEnd - task.sprintStart + 1) * GANTT.sprintW - 4;
         const barY = y + (GANTT.rowH - GANTT.barH) / 2;
 
-        // 바 배경
+        // 条背景
         svg.appendChild(svgEl("rect", {
           x: String(barX), y: String(barY),
           width: String(barW), height: String(GANTT.barH),
@@ -294,7 +294,7 @@ tags: [frontend]
           opacity: "0.7",
         }));
 
-        // 진행률 오버레이
+        // 进度覆盖层
         if (task.progress > 0) {
           const progressW = barW * (task.progress / 100);
           svg.appendChild(svgEl("rect", {
@@ -305,7 +305,7 @@ tags: [frontend]
           }));
         }
 
-        // 진행률 텍스트
+        // 进度文字
         if (task.progress > 0) {
           const pctEl = svgEl("text", {
             x: String(barX + barW / 2), y: String(barY + 14),
@@ -318,7 +318,7 @@ tags: [frontend]
       }
     });
 
-    // 의존성 화살표
+    // 依赖箭头
     for (const task of this.tasks) {
       for (const depId of task.dependsOn) {
         const fromY = taskYMap.get(depId);
@@ -331,7 +331,7 @@ tags: [frontend]
         const x1 = GANTT.labelW + depTask.sprintEnd * GANTT.sprintW - 2;
         const x2 = GANTT.labelW + (task.sprintStart - 1) * GANTT.sprintW;
 
-        // 베지어 커브
+        // 贝塞尔曲线
         const path = svgEl("path", {
           d: `M ${x1} ${fromY} C ${x1 + 20} ${fromY}, ${x2 - 20} ${toY}, ${x2} ${toY}`,
           fill: "none", stroke: GCOLORS.depLine,
@@ -342,7 +342,7 @@ tags: [frontend]
       }
     }
 
-    // 화살표 마커 정의
+    // 箭头标记定义
     const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
     const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
     marker.setAttribute("id", "arrowhead");
@@ -361,10 +361,10 @@ tags: [frontend]
     this.graphEl.appendChild(svg);
   }
 
-  // ── 태스크 추가 ──
+  // ── 添加任务 ──
 
   private async handleAddTask(): Promise<void> {
-    const name = window.prompt("태스크 이름:");
+    const name = window.prompt("任务名称：");
     if (!name) return;
 
     const id = `task_${Date.now().toString(36)}`;
@@ -387,15 +387,15 @@ tags: [frontend]
       "",
     ].join("\n");
 
-    // 00_인박스에 생성
-    const filePath = `00_인박스/${id}.md`;
+    // 在 00_Inbox 中创建
+    const filePath = `00_收件箱/${id}.md`;
     await this.app.vault.create(filePath, content);
-    new Notice(`태스크 생성: ${filePath}`);
+    new Notice(`任务已创建：${filePath}`);
     await this.refresh();
   }
 }
 
-// ── SVG 유틸 ──
+// ── SVG 工具函数 ──
 
 function svgEl(tag: string, attrs: Record<string, string>): SVGElement {
   const el = document.createElementNS("http://www.w3.org/2000/svg", tag);

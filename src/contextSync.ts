@@ -2,11 +2,11 @@ import { App, Notice } from "obsidian";
 import * as os from "os";
 import * as path from "path";
 
-// ── 인터페이스 ──
+// ── 接口 ──
 
 export interface ContextSource {
-  agent: string;       // "claude-code", "codex", "gemini", "gpt" 등
-  localPath: string;   // 로컬 컨텍스트 경로 (~ 허용)
+  agent: string;       // "claude-code", "codex", "gemini", "gpt" 等
+  localPath: string;   // 本地上下文路径 (支持 ~)
   enabled: boolean;
 }
 
@@ -18,7 +18,7 @@ export function getDefaultHostName(): string {
   return os.hostname().toLowerCase().replace(/[^a-z0-9\-]/g, "");
 }
 
-// ── 보안 제외 목록 ──
+// ── 安全排除列表 ──
 
 function getExcludes(agent: string): string[] {
   switch (agent) {
@@ -39,7 +39,7 @@ function getExcludes(agent: string): string[] {
   }
 }
 
-// ── 경로 유틸 ──
+// ── 路径工具 ──
 
 function toGitBashPath(p: string): string {
   if (process.platform !== "win32") return p;
@@ -48,12 +48,12 @@ function toGitBashPath(p: string): string {
     .replace(/^([A-Za-z]):/, (_, d: string) => `/${d.toLowerCase()}`);
 }
 
-/** 쉘 인젝션 방지: 안전한 문자만 허용 */
+/** 防止 shell 注入: 仅允许安全字符 */
 function sanitizeForShell(s: string): string {
   return s.replace(/[^a-zA-Z0-9._\-\/~]/g, "");
 }
 
-// ── 스크립트 생성 ──
+// ── 脚本生成 ──
 
 export function generateSyncScript(
   hostName: string,
@@ -92,7 +92,7 @@ export function generateSyncScript(
     const excludeArgs = excludes
       .map((e) => `--exclude='${e}'`)
       .join(" ");
-    // cp 폴백용: 제외 파일 삭제 명령 생성
+    // cp 回退用: 生成排除文件删除命令
     const cpCleanup = excludes
       .map((e) => {
         if (e.endsWith("/")) return `find "$DST" -type d -name '${e.slice(0, -1)}' -exec rm -rf {} + 2>/dev/null`;
@@ -110,7 +110,7 @@ export function generateSyncScript(
     lines.push(`    rsync -av --update ${excludeArgs} "$SRC/" "$DST/"`);
     lines.push("  else");
     lines.push('    cp -ru "$SRC/"* "$DST/" 2>/dev/null || cp -R "$SRC/"* "$DST/"');
-    lines.push(`    # cp는 exclude 미지원 → 복사 후 보안 파일 삭제`);
+    lines.push(`    # cp 不支持 exclude → 复制后删除安全文件`);
     lines.push(`    ${cpCleanup} || true`);
     lines.push("  fi");
     lines.push(`  echo "  ✓ ${safeAgent}"`);
@@ -129,7 +129,7 @@ export function generateSyncScript(
   return lines.join("\n") + "\n";
 }
 
-// ── 스크립트 파일 쓰기 ──
+// ── 脚本文件写入 ──
 
 export async function writeSyncScript(
   app: App,

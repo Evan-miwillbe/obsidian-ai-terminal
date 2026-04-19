@@ -3,26 +3,26 @@ import { spawn, ChildProcess } from "child_process";
 import { ContextPipeServer } from "./contextPipeServer";
 import { Watchdog } from "./watchdog";
 
-// ── ACP (Agent Communication Protocol) 레이어 ──
-// Named Pipe 서버 위에 에이전트 간 통신을 구현.
-// 오케스트레이터로서 여러 에이전트(Claude Code, Codex, Gemini CLI)에게
-// 작업을 위임하고 결과를 수집한다.
+// ── ACP (Agent Communication Protocol) 层 ──
+// 在 Named Pipe 服务器之上实现代理间通信。
+// 作为编排器向多个代理(Claude Code, Codex, Gemini CLI)
+// 委派任务并收集结果。
 //
-// 프로토콜: JSON-RPC 2.0 over Named Pipe (contextPipeServer 확장)
-// 추가 메서드:
-//   agent/list    — 등록된 에이전트 목록
-//   agent/invoke  — 에이전트에 프롬프트 전달 → 결과 반환
-//   agent/status  — 실행 중인 에이전트 상태
-//   agent/cancel  — 실행 중인 에이전트 취소
+// 协议: JSON-RPC 2.0 over Named Pipe (contextPipeServer 扩展)
+// 额外方法:
+//   agent/list    — 已注册的代理列表
+//   agent/invoke  — 向代理传递 prompt → 返回结果
+//   agent/status  — 正在运行的代理状态
+//   agent/cancel  — 取消正在运行的代理
 
-// ── 에이전트 정의 ──
+// ── 代理定义 ──
 
 export interface AgentDef {
   id: string;
   name: string;
-  command: string;           // CLI 명령어 (e.g., "claude", "codex", "gemini")
-  args: string[];            // 기본 인자 (e.g., ["-p"])
-  available: boolean;        // 설치 확인
+  command: string;           // CLI 命令 (e.g., "claude", "codex", "gemini")
+  args: string[];            // 默认参数 (e.g., ["-p"])
+  available: boolean;        // 是否已安装
   description: string;
 }
 
@@ -38,7 +38,7 @@ export interface AgentInvocation {
   process: ChildProcess | null;
 }
 
-// ── 기본 에이전트 목록 ──
+// ── 默认代理列表 ──
 
 const DEFAULT_AGENTS: AgentDef[] = [
   {
@@ -47,7 +47,7 @@ const DEFAULT_AGENTS: AgentDef[] = [
     command: "claude",
     args: ["-p"],
     available: false,
-    description: "Anthropic Claude Code CLI — 코드 생성, 리뷰, 리팩토링",
+    description: "Anthropic Claude Code CLI — 代码生成、审查、重构",
   },
   {
     id: "codex",
@@ -55,7 +55,7 @@ const DEFAULT_AGENTS: AgentDef[] = [
     command: "codex",
     args: ["--quiet", "--prompt"],
     available: false,
-    description: "OpenAI Codex CLI — 코드 생성, 테스트",
+    description: "OpenAI Codex CLI — 代码生成、测试",
   },
   {
     id: "gemini-cli",
@@ -63,7 +63,7 @@ const DEFAULT_AGENTS: AgentDef[] = [
     command: "gemini",
     args: ["-p"],
     available: false,
-    description: "Google Gemini CLI — 문서 생성, 분석",
+    description: "Google Gemini CLI — 文档生成、分析",
   },
 ];
 
@@ -80,7 +80,7 @@ export class AcpLayer {
     this.agents = DEFAULT_AGENTS.map((a) => ({ ...a }));
   }
 
-  /** 에이전트 CLI 설치 여부 확인 */
+  /** 确认代理 CLI 是否已安装 */
   async checkAvailability(): Promise<void> {
     for (const agent of this.agents) {
       agent.available = await this.isCommandAvailable(agent.command);
@@ -93,21 +93,21 @@ export class AcpLayer {
       const child = spawn(which, [command], { stdio: "pipe" });
       child.on("close", (code) => resolve(code === 0));
       child.on("error", () => resolve(false));
-      // 5초 타임아웃
+      // 5 秒超时
       setTimeout(() => { child.kill(); resolve(false); }, 5000);
     });
   }
 
-  /** 등록된 에이전트 목록 */
+  /** 已注册的代理列表 */
   getAgents(): AgentDef[] {
     return this.agents;
   }
 
-  /** 에이전트에 프롬프트 전달 → 결과 반환 */
+  /** 向代理传递 prompt → 返回结果 */
   async invoke(agentId: string, prompt: string, cwd?: string): Promise<AgentInvocation> {
     const agent = this.agents.find((a) => a.id === agentId);
-    if (!agent) throw new Error(`에이전트 없음: ${agentId}`);
-    if (!agent.available) throw new Error(`${agent.name}이 설치되어 있지 않습니다`);
+    if (!agent) throw new Error(`代理不存在: ${agentId}`);
+    if (!agent.available) throw new Error(`${agent.name} 尚未安装`);
 
     const invocationId = `inv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`;
     const vaultPath = (this.app.vault.adapter as any).basePath as string;
@@ -126,10 +126,10 @@ export class AcpLayer {
 
     this.invocations.set(invocationId, invocation);
 
-    // 컨텍스트 프리픽스: 현재 볼트 상태 요약
+    // 上下文前缀: 当前仓库状态摘要
     const context = this.watchdog.currentIndex;
     const contextPrefix = context.activeNote
-      ? `[현재 노트: ${context.activeNote.basename}] `
+      ? `[当前笔记: ${context.activeNote.basename}] `
       : "";
 
     const fullPrompt = contextPrefix + prompt;
@@ -185,7 +185,7 @@ export class AcpLayer {
         resolve(invocation);
       });
 
-      // 10분 타임아웃
+      // 10 分钟超时
       setTimeout(() => {
         if (invocation.status === "running") {
           child.kill();
@@ -199,7 +199,7 @@ export class AcpLayer {
     });
   }
 
-  /** 병렬 에이전트 호출 — 같은 프롬프트를 여러 에이전트에 동시 전달 */
+  /** 并行代理调用 — 将相同 prompt 同时传递给多个代理 */
   async invokeParallel(
     agentIds: string[],
     prompt: string,
@@ -209,12 +209,12 @@ export class AcpLayer {
     return Promise.all(promises);
   }
 
-  /** 실행 중인 호출 상태 */
+  /** 获取正在运行的调用状态 */
   getInvocation(invocationId: string): AgentInvocation | null {
     return this.invocations.get(invocationId) ?? null;
   }
 
-  /** 실행 중인 호출 취소 */
+  /** 取消正在运行的调用 */
   cancel(invocationId: string): boolean {
     const inv = this.invocations.get(invocationId);
     if (!inv || inv.status !== "running") return false;
@@ -228,14 +228,14 @@ export class AcpLayer {
     return true;
   }
 
-  /** 모든 호출 히스토리 */
+  /** 所有调用历史记录 */
   getAllInvocations(): AgentInvocation[] {
     return [...this.invocations.values()].sort(
       (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
     );
   }
 
-  /** 완료된 호출 정리 (메모리 관리) */
+  /** 清理已完成的调用 (内存管理) */
   pruneCompleted(): number {
     let pruned = 0;
     for (const [id, inv] of this.invocations) {
