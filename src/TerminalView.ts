@@ -1,4 +1,4 @@
-import { ItemView, Modal, Scope, WorkspaceLeaf } from "obsidian";
+import { ItemView, Modal, Notice, Scope, WorkspaceLeaf } from "obsidian";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { PtyProcess } from "./PtyProcess";
@@ -64,6 +64,12 @@ export class TerminalView extends ItemView {
 
     // Tab bar
     this.tabBarEl = container.createDiv({ cls: "ai-terminal-tab-bar" });
+
+    // Copy note path button (left side of tab bar)
+    const copyBtn = this.tabBarEl.createDiv({ cls: "ai-terminal-tab-copy", attr: { "aria-label": "Copy note path" } });
+    copyBtn.setText("📄");
+    copyBtn.addEventListener("click", () => this.copyNotePath());
+
     const addBtn = this.tabBarEl.createDiv({ cls: "ai-terminal-tab-add", attr: { "aria-label": "New terminal" } });
     addBtn.setText("+");
     addBtn.addEventListener("click", () => this.addTab());
@@ -338,6 +344,8 @@ export class TerminalView extends ItemView {
     const header = splitEl.createDiv({ cls: "ai-terminal-split-header" });
     const splitName = header.createSpan({ cls: "ai-terminal-split-name", text: tab.name });
     splitName.addEventListener("contextmenu", (e) => { e.preventDefault(); this.renameTab(tab.id); });
+    const splitCopyBtn = header.createSpan({ cls: "ai-terminal-split-copy", text: "📄" });
+    splitCopyBtn.addEventListener("click", () => this.copyNotePath());
     const closeBtn = header.createSpan({ cls: "ai-terminal-split-close", text: "×" });
     closeBtn.addEventListener("click", () => {
       if (!confirm(`Close "${tab.name}"?`)) return;
@@ -556,6 +564,16 @@ export class TerminalView extends ItemView {
     const tab = this.tabs.find(t => t.id === this.activeTabId)
       ?? (this.splits.length > 0 ? this.tabs.find(t => t.id === this.splits[this.splits.length - 1].tabId) : null);
     tab?.terminal.write(text);
+  }
+
+  private copyNotePath(): void {
+    const file = this.app.workspace.getActiveFile();
+    if (!file) { new Notice("No active note"); return; }
+    const vaultPath = (this.app.vault.adapter as any).basePath as string;
+    const absPath = vaultPath + "/" + file.path;
+    navigator.clipboard.writeText(absPath).then(() => {
+      new Notice(`Copied: ${absPath}`, 3000);
+    });
   }
   sendKeys(keys: string): void {
     const tab = this.tabs.find(t => t.id === this.activeTabId)

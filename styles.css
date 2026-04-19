@@ -149,6 +149,46 @@
   color: var(--text-normal);
 }
 
+.ai-terminal-tab-copy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-muted);
+  background: transparent;
+  transition: background 0.15s ease, color 0.15s ease;
+  user-select: none;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.ai-terminal-tab-copy:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.ai-terminal-split-copy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  font-size: 11px;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ai-terminal-split-copy:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
 .ai-terminal-tab-add {
   display: flex;
   align-items: center;
