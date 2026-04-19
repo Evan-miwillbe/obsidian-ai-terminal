@@ -232,22 +232,7 @@ export class TerminalView extends ItemView {
     pty.start();
     terminal.onData((data: string) => { pty.write(data); });
 
-    // Auto-rename tab when the running program sets terminal title (OSC escape sequence)
-    // Respects user manual rename — once renamed by user, OSC won't override
-    terminal.onTitleChange((title: string) => {
-      const tab = this.tabs.find(t => t.id === id);
-      if (!tab || !title.trim() || tab.userRenamed) return;
-      tab.name = title;
-      // Update tab bar label
-      const tabBtn = this.tabBarEl?.querySelector(`[data-tab-id="${id}"] .ai-terminal-tab-label`);
-      if (tabBtn) tabBtn.textContent = title;
-      // Update split pane header
-      const split = this.splits.find(s => s.tabId === id);
-      if (split) {
-        const nameEl = split.headerEl.querySelector(".ai-terminal-split-name");
-        if (nameEl) nameEl.textContent = title;
-      }
-    });
+    // OSC title changes are ignored — tab name stays as "Terminal N" unless user renames
 
     const timers: ReturnType<typeof setTimeout>[] = [];
     timers.push(setTimeout(() => {
