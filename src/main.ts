@@ -24,6 +24,7 @@ import * as path from "path";
 
 export default class AITerminalPlugin extends Plugin {
   settings: AITerminalSettings = DEFAULT_SETTINGS;
+  static instance: AITerminalPlugin | null = null;
   scheduler: Scheduler | null = null;
   ruleSync: RuleSync | null = null;
   deployRegistry: DeployRegistryManager | null = null;
@@ -37,6 +38,7 @@ export default class AITerminalPlugin extends Plugin {
   }
 
   async onload(): Promise<void> {
+    AITerminalPlugin.instance = this;
     await this.loadSettings();
 
     // 터미널 뷰 등록
@@ -327,11 +329,15 @@ export default class AITerminalPlugin extends Plugin {
   }
 
   async openTerminal(preset: Preset | null): Promise<void> {
-    const leaf = this.app.workspace.getRightLeaf(false);
-    if (!leaf) return;
+    // Reuse existing terminal leaf, or create one if none exists
+    const existingLeaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_TERMINAL);
+    const isNewLeaf = existingLeaves.length === 0;
 
-    // 프리셋 정보를 leaf에 임시 저장
-    (leaf as any)._aiTerminalPreset = preset;
+    let leaf = existingLeaves[0];
+    if (!leaf) {
+      leaf = this.app.workspace.getRightLeaf(false);
+    }
+    if (!leaf) return;
 
     await leaf.setViewState({
       type: VIEW_TYPE_TERMINAL,
@@ -339,6 +345,14 @@ export default class AITerminalPlugin extends Plugin {
     });
 
     this.app.workspace.revealLeaf(leaf);
+
+    // Only add a tab if the view already existed (new views call addTab in onOpen)
+    if (!isNewLeaf) {
+      const view = leaf.view as TerminalView;
+      if (view && view instanceof TerminalView) {
+        view.addTab(preset);
+      }
+    }
   }
 
   /** 활성 터미널 뷰의 xterm에 텍스트 출력 */

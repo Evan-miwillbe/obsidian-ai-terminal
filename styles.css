@@ -20,7 +20,7 @@
 }
 .xterm .composition-view.active { display: block; }
 .xterm .xterm-viewport {
-  background-color: #000; overflow-y: scroll; cursor: default;
+  background-color: transparent !important; overflow-y: scroll; cursor: default;
   position: absolute; right: 0; left: 0; top: 0; bottom: 0;
 }
 .xterm .xterm-screen { position: relative; }
@@ -60,12 +60,214 @@
   height: 100%;
   padding: 0;
   overflow: hidden;
+  background: transparent;
+  font-family: var(--font-text);
 }
+
+/* Tab bar */
+.ai-terminal-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  min-height: 34px;
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.ai-terminal-tab-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: transparent;
+  transition: background 0.15s ease, color 0.15s ease;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.ai-terminal-tab-item:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.ai-terminal-tab-item.active {
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-weight: 500;
+  border: 1px solid var(--background-modifier-border);
+}
+
+.ai-terminal-tab-label {
+  pointer-events: none;
+}
+
+.ai-terminal-tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-faint);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ai-terminal-tab-close:hover {
+  background: var(--background-modifier-hover);
+  color: var(--color-red);
+}
+
+.ai-terminal-tab-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--text-muted);
+  background: transparent;
+  transition: background 0.15s ease, color 0.15s ease;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.ai-terminal-tab-add:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+/* Content area for tab panels */
+.ai-terminal-main-pane {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  min-height: 60px;
+}
+
+.ai-terminal-splits-wrapper {
+  flex: 0 0 auto;
+  max-height: 50%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ai-terminal-split-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 80px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.ai-terminal-split-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 8px;
+  background: var(--background-secondary);
+  border-bottom: 1px solid var(--background-modifier-border);
+  min-height: 26px;
+  flex-shrink: 0;
+}
+
+.ai-terminal-split-name {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.ai-terminal-split-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  font-size: 14px;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ai-terminal-split-close:hover {
+  background: var(--background-modifier-hover);
+  color: var(--color-red);
+}
+
+.ai-terminal-split-term {
+  flex: 1;
+  overflow: hidden;
+}
+
+.ai-terminal-xterm {
+  height: 100%;
+  overflow: hidden;
+  padding: 8px 4px;
+  background: transparent;
+  border-radius: 6px;
+}
+
+.ai-terminal-xterm .xterm { height: 100%; }
+.ai-terminal-xterm .xterm-viewport { overflow-y: auto; }
+.ai-terminal-xterm .xterm-screen { height: 100%; }
+.ai-terminal-xterm .xterm-viewport::-webkit-scrollbar { width: 6px; }
+.ai-terminal-xterm .xterm-viewport::-webkit-scrollbar-thumb { background: var(--background-modifier-border); border-radius: 3px; }
+.ai-terminal-xterm .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+.ai-terminal-xterm .xterm-viewport::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+
+/* Resizable divider between main pane and splits */
+.ai-terminal-resizer {
+  flex: 0 0 5px;
+  background: var(--background-modifier-border);
+  cursor: row-resize;
+  transition: background 0.15s ease;
+}
+.ai-terminal-resizer:hover {
+  background: var(--interactive-accent);
+}
+.ai-terminal-divider {
+  flex: 0 0 4px;
+  background: var(--background-modifier-border);
+  cursor: row-resize;
+  transition: background 0.15s ease;
+}
+.ai-terminal-divider:hover { background: var(--interactive-accent); }
+
+/* Drop indicator */
+.ai-terminal-drop-indicator {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--interactive-accent);
+  z-index: 100;
+  pointer-events: none;
+  opacity: 0.8;
+}
+
+.ai-terminal-tab-item[draggable="true"] { cursor: grab; }
+.ai-terminal-tab-item[draggable="true"]:active { cursor: grabbing; }
 
 .ai-terminal-xterm {
   flex: 1;
   overflow: hidden;
-  padding: 4px;
+  padding: 8px 4px;
+  background: transparent;
+  border-radius: 6px;
 }
 
 /* xterm.js 기본 스타일 오버라이드 */
@@ -81,18 +283,22 @@
   height: 100%;
 }
 
-/* 스크롤바 스타일 */
+/* 스크롤바 스타일 — 참고: Claudian 스타일 */
 .ai-terminal-xterm .xterm-viewport::-webkit-scrollbar {
   width: 6px;
 }
 
 .ai-terminal-xterm .xterm-viewport::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--background-modifier-border);
   border-radius: 3px;
 }
 
 .ai-terminal-xterm .xterm-viewport::-webkit-scrollbar-track {
   background: transparent;
+}
+
+.ai-terminal-xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
 }
 
 /* === Schema Map View === */

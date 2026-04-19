@@ -46,7 +46,7 @@ export const DEFAULT_SETTINGS: AITerminalSettings = {
   defaultShell: getDefaultShell(),
   defaultCwd: "",
   fontSize: 14,
-  fontFamily: "'MesloLGS NF', Menlo, Monaco, 'Courier New', monospace",
+  fontFamily: "'Cascadia Code', 'Cascadia Mono', Consolas, 'Courier New', monospace",
   presets: DEFAULT_PRESETS,
   vaultIndexEnabled: false,
   vaultIndexPath: ".obsidian/plugins/obsidian-ai-terminal/vault-index.json",
