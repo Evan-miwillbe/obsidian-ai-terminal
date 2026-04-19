@@ -97,8 +97,9 @@ export class TerminalView extends ItemView {
     // Draggable divider between main pane and splits (hidden until split exists)
     const resizer = container.createDiv({ cls: "ai-terminal-resizer" });
 
-    // Splits wrapper — holds split panes below the main pane
+    // Splits wrapper — hidden until a split exists
     this.splitsWrapperEl = container.createDiv({ cls: "ai-terminal-splits-wrapper" });
+    this.splitsWrapperEl.style.display = "none";
     resizer.style.display = "none";
     let startY = 0;
     let startMainH = 0;
@@ -127,14 +128,21 @@ export class TerminalView extends ItemView {
     // Expose resizer visibility control
     this._resizerEl = resizer;
 
-    // Resize observer — debounced to prevent infinite fit loop
+    // Resize observer — heavily debounced, only on real size change
+    let lastW = 0, lastH = 0;
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
-    this.resizeObserver = new ResizeObserver(() => {
-      if (resizeTimer) return;
+    this.resizeObserver = new ResizeObserver((entries) => {
+      const e = entries[0];
+      if (!e) return;
+      const w = Math.round(e.contentRect.width);
+      const h = Math.round(e.contentRect.height);
+      if (w === lastW && h === lastH) return;
+      lastW = w; lastH = h;
+      if (resizeTimer) clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
         resizeTimer = null;
         this.fitAll();
-      }, 150);
+      }, 200);
     });
     this.resizeObserver.observe(container);
 
@@ -169,7 +177,7 @@ export class TerminalView extends ItemView {
     };
   }
 
-  /** Create a terminal + PTY and return the TabInstance (no DOM attachment yet) */
+  /** Create terminal infrastructure (PTY, xterm config) but do NOT open into DOM yet */
   private createTerminalInstance(id: string, preset: Preset | null): TabInstance {
     const colors = this.getThemeColors();
     const termEl = createDiv({ cls: "ai-terminal-xterm" });
@@ -195,7 +203,7 @@ export class TerminalView extends ItemView {
 
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
-    terminal.open(termEl);
+    // NOTE: do NOT call terminal.open() here — element is not in DOM yet
 
     // Ctrl + scroll wheel to zoom font size
     termEl.addEventListener("wheel", (e: WheelEvent) => {
@@ -236,31 +244,46 @@ export class TerminalView extends ItemView {
     pty.on("data", (data: string) => { terminal.write(data); });
     pty.on("exit", () => { terminal.write("\r\n\x1b[90m[Process exited]\x1b[0m\r\n"); });
     pty.on("error", (err: Error) => { terminal.write(`\r\n\x1b[31m[Error: ${err.message}]\x1b[0m\r\n`); });
-    pty.start();
     terminal.onData((data: string) => { pty.write(data); });
 
-    // OSC title changes are ignored — tab name stays as "Terminal N" unless user renames
-
     const timers: ReturnType<typeof setTimeout>[] = [];
-    if (preset?.command) {
-      timers.push(setTimeout(() => { pty.write(preset!.command + "\n"); }, 400));
-    }
 
     const defaultName = preset ? preset.name : `Terminal ${this.tabCounter}`;
     return { id, name: defaultName, userRenamed: false, terminal, fitAddon, pty, el: termEl, timers };
   }
+
+  /** Open xterm into DOM + start PTY. Must be called AFTER el is attached to visible DOM. */
+  private activateTerminal(tab: TabInstance, preset: Preset | null): void {
+    if (!tab.terminal.element) {
+      tab.terminal.open(tab.el);
+    }
+    tab.pty.start();
+    tab.fitAddon.fit();
+    tab.pty.resize(tab.terminal.cols, tab.terminal.rows);
+    tab.terminal.focus();
+    if (preset?.command) {
+      tab.timers.push(setTimeout(() => { tab.pty.write(preset!.command + "\n"); }, 400));
+    }
+  }
+
+  private pendingPreset: Preset | null = null;
 
   addTab(preset: Preset | null = null): void {
     this.tabCounter++;
     const id = `tab-${Date.now()}-${this.tabCounter}`;
     const tab = this.createTerminalInstance(id, preset);
     this.tabs.push(tab);
+    this.pendingPreset = preset;
 
     // Add tab button to tab bar
     this.renderTabButton(tab);
 
-    // Show in main pane
+    // Show in main pane (attaches el to DOM first)
     this.showTabInMain(id);
+
+    // NOW open terminal + start PTY (element is in visible DOM)
+    this.activateTerminal(tab, this.pendingPreset);
+    this.pendingPreset = null;
   }
 
   /** Show a tab's terminal in the main pane */
@@ -277,11 +300,6 @@ export class TerminalView extends ItemView {
 
     this.activeTabId = tabId;
     this.updateTabHighlight();
-
-    setTimeout(() => {
-      tab.fitAddon.fit();
-      tab.terminal.focus();
-    }, 50);
   }
 
   /** Split a tab out of the tab bar into a pinned pane below */
@@ -336,8 +354,9 @@ export class TerminalView extends ItemView {
       tab.pty.resize(tab.terminal.cols, tab.terminal.rows);
     }, 100);
 
-    // Show resizer
+    // Show resizer and splits wrapper
     if (this._resizerEl) this._resizerEl.style.display = "";
+    this.splitsWrapperEl!.style.display = "";
   }
 
   private closeSplit(tabId: string): void {
@@ -364,9 +383,13 @@ export class TerminalView extends ItemView {
     this.splits.splice(splitIdx, 1);
     this.tabs.splice(this.tabs.indexOf(tab), 1);
 
-    // Hide resizer if no splits left
-    if (this.splits.length === 0 && this._resizerEl) {
-      this._resizerEl.style.display = "none";
+    // Hide resizer + reset main pane to full size when no splits left
+    if (this.splits.length === 0) {
+      if (this._resizerEl) this._resizerEl.style.display = "none";
+      this.mainPaneEl!.style.flex = "";
+      this.splitsWrapperEl!.style.flex = "";
+      this.splitsWrapperEl!.style.display = "none";
+      setTimeout(() => this.fitAll(), 50);
     }
   }
 
