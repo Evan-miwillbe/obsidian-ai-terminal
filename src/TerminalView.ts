@@ -3,12 +3,14 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { PtyProcess } from "./PtyProcess";
 import type { AITerminalSettings, Preset } from "./settings";
+import * as path from "path";
 
 export const VIEW_TYPE_TERMINAL = "ai-terminal-view";
 
 interface TabInstance {
   id: string;
   name: string;
+  userRenamed: boolean;
   terminal: Terminal;
   fitAddon: FitAddon;
   pty: PtyProcess;
@@ -231,9 +233,10 @@ export class TerminalView extends ItemView {
     terminal.onData((data: string) => { pty.write(data); });
 
     // Auto-rename tab when the running program sets terminal title (OSC escape sequence)
+    // Respects user manual rename — once renamed by user, OSC won't override
     terminal.onTitleChange((title: string) => {
       const tab = this.tabs.find(t => t.id === id);
-      if (!tab || !title.trim()) return;
+      if (!tab || !title.trim() || tab.userRenamed) return;
       tab.name = title;
       // Update tab bar label
       const tabBtn = this.tabBarEl?.querySelector(`[data-tab-id="${id}"] .ai-terminal-tab-label`);
@@ -253,7 +256,8 @@ export class TerminalView extends ItemView {
       if (preset?.command) { timers.push(setTimeout(() => { pty.write(preset!.command + "\n"); }, 300)); }
     }, 100));
 
-    return { id, name: preset ? preset.name : `Terminal ${this.tabCounter}`, terminal, fitAddon, pty, el: termEl, timers };
+    const shellName = preset ? preset.name : path.basename(shell).replace(/\.(exe|cmd)$/i, "");
+    return { id, name: shellName, userRenamed: false, terminal, fitAddon, pty, el: termEl, timers };
   }
 
   addTab(preset: Preset | null = null): void {
@@ -315,7 +319,8 @@ export class TerminalView extends ItemView {
     // Create split pane with header
     const splitEl = this.splitsWrapperEl!.createDiv({ cls: "ai-terminal-split-pane" });
     const header = splitEl.createDiv({ cls: "ai-terminal-split-header" });
-    header.createSpan({ cls: "ai-terminal-split-name", text: tab.name });
+    const splitName = header.createSpan({ cls: "ai-terminal-split-name", text: tab.name });
+    splitName.addEventListener("dblclick", () => this.renameTab(tab.id));
     const closeBtn = header.createSpan({ cls: "ai-terminal-split-close", text: "×" });
     closeBtn.addEventListener("click", () => {
       if (!confirm(`Close "${tab.name}"?`)) return;
@@ -378,7 +383,7 @@ export class TerminalView extends ItemView {
 
   private renderTabButton(tab: TabInstance): void {
     const btn = this.tabBarEl!.createDiv({ cls: "ai-terminal-tab-item", attr: { "data-tab-id": tab.id, draggable: "true" } });
-    btn.createSpan({ cls: "ai-terminal-tab-label", text: tab.name });
+    const label = btn.createSpan({ cls: "ai-terminal-tab-label", text: tab.name });
     const closeBtn = btn.createSpan({ cls: "ai-terminal-tab-close", text: "×" });
     closeBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -387,6 +392,10 @@ export class TerminalView extends ItemView {
       this.closeTab(idx);
     });
     btn.addEventListener("click", () => this.showTabInMain(tab.id));
+    btn.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      this.renameTab(tab.id);
+    });
     btn.addEventListener("dragstart", (e: DragEvent) => {
       e.dataTransfer?.setData("text/plain", tab.id);
       e.dataTransfer!.effectAllowed = "move";
@@ -472,6 +481,25 @@ export class TerminalView extends ItemView {
     this.tabBarEl?.querySelectorAll(".ai-terminal-tab-item").forEach((el) => {
       el.classList.toggle("active", el.getAttribute("data-tab-id") === this.activeTabId);
     });
+  }
+
+  /** Prompt user to rename a tab — locks the name so OSC auto-title won't override */
+  private renameTab(tabId: string): void {
+    const tab = this.tabs.find(t => t.id === tabId);
+    if (!tab) return;
+    const newName = window.prompt("Rename terminal:", tab.name);
+    if (!newName || !newName.trim() || newName.trim() === tab.name) return;
+    tab.name = newName.trim();
+    tab.userRenamed = true;
+    // Update tab bar label
+    const tabBtn = this.tabBarEl?.querySelector(`[data-tab-id="${tabId}"] .ai-terminal-tab-label`);
+    if (tabBtn) tabBtn.textContent = tab.name;
+    // Update split pane header
+    const split = this.splits.find(s => s.tabId === tabId);
+    if (split) {
+      const nameEl = split.headerEl.querySelector(".ai-terminal-split-name");
+      if (nameEl) nameEl.textContent = tab.name;
+    }
   }
 
   private fitAll(): void {
