@@ -1,6 +1,7 @@
 import { ItemView, Modal, Notice, Scope, WorkspaceLeaf } from "obsidian";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { PtyProcess } from "./PtyProcess";
 import type { AITerminalSettings, Preset } from "./settings";
 import * as path from "path";
@@ -65,14 +66,15 @@ export class TerminalView extends ItemView {
     // Tab bar
     this.tabBarEl = container.createDiv({ cls: "ai-terminal-tab-bar" });
 
-    // Copy note path button (left side of tab bar)
-    const copyBtn = this.tabBarEl.createDiv({ cls: "ai-terminal-tab-copy", attr: { "aria-label": "Copy note path" } });
-    copyBtn.setText("📄");
-    copyBtn.addEventListener("click", () => this.copyNotePath());
-
+    // Add terminal button (will be repositioned after tabs via CSS)
     const addBtn = this.tabBarEl.createDiv({ cls: "ai-terminal-tab-add", attr: { "aria-label": "New terminal" } });
     addBtn.setText("+");
     addBtn.addEventListener("click", () => this.addTab());
+
+    // Copy note path button (right side)
+    const copyBtn = this.tabBarEl.createDiv({ cls: "ai-terminal-tab-copy", attr: { "aria-label": "Copy note path" } });
+    copyBtn.setText("📄");
+    copyBtn.addEventListener("click", () => this.copyNotePath());
 
     // Main pane — shows the active tab from tab bar
     this.mainPaneEl = container.createDiv({ cls: "ai-terminal-main-pane" });
@@ -148,7 +150,10 @@ export class TerminalView extends ItemView {
       resizeTimer = setTimeout(() => {
         resizeTimer = null;
         this.fitAll();
-      }, 200);
+        // Force full refresh after resize to prevent garbled rendering
+        const active = this.tabs.find(t => t.id === this.activeTabId);
+        if (active) active.terminal.refresh(0, active.terminal.rows - 1);
+      }, 400);
     });
     this.resizeObserver.observe(container);
 
@@ -192,6 +197,9 @@ export class TerminalView extends ItemView {
       fontSize: this.settings.fontSize,
       fontFamily: this.settings.fontFamily,
       cursorBlink: true, cursorStyle: "block", allowProposedApi: true,
+      scrollback: 1000,
+      fastScrollModifier: "alt",
+      fastScrollSensitivity: 5,
       theme: {
         background: colors.termBg, foreground: colors.fg, cursor: colors.accent,
         selectionBackground: colors.isDark ? "#264f78" : "#add6ff", selectionForeground: colors.isDark ? "#ffffff" : "#000000",
@@ -211,6 +219,13 @@ export class TerminalView extends ItemView {
     terminal.loadAddon(fitAddon);
     terminal.open(termEl);
 
+    // GPU-accelerated rendering — fallback to canvas if WebGL unavailable
+    try {
+      const webglAddon = new WebglAddon();
+      webglAddon.onContextLoss(() => { webglAddon.dispose(); });
+      terminal.loadAddon(webglAddon);
+    } catch { /* canvas fallback */ }
+
     // Ctrl + scroll wheel to zoom font size
     termEl.addEventListener("wheel", (e: WheelEvent) => {
       if (!e.ctrlKey) return;
@@ -223,6 +238,7 @@ export class TerminalView extends ItemView {
         terminal.options.fontSize = next;
         fitAddon.fit();
         pty.resize(terminal.cols, terminal.rows);
+        terminal.refresh(0, terminal.rows - 1);
       }
     }, { passive: false });
 
@@ -256,6 +272,8 @@ export class TerminalView extends ItemView {
     };
     pty.on("data", (data: string) => {
       writeBuf += data;
+      // Flush immediately if buffer exceeds 64KB to prevent jank
+      if (writeBuf.length > 65536) { flushWrite(); return; }
       if (!writeScheduled) { writeScheduled = true; requestAnimationFrame(flushWrite); }
     });
     pty.on("exit", () => { terminal.write("\r\n\x1b[90m[Process exited]\x1b[0m\r\n"); });
@@ -431,8 +449,13 @@ export class TerminalView extends ItemView {
       e.dataTransfer?.setData("text/plain", tab.id);
       e.dataTransfer!.effectAllowed = "move";
     });
+    // Insert tab before the "+" button: [Tab1] [Tab2] [+] ... [📄]
     const addEl = this.tabBarEl!.querySelector(".ai-terminal-tab-add");
-    if (addEl) this.tabBarEl!.insertBefore(btn, addEl);
+    if (addEl) {
+      this.tabBarEl!.insertBefore(btn, addEl);
+    } else {
+      this.tabBarEl!.appendChild(btn);
+    }
   }
 
   private closeTab(idx: number): void {
@@ -539,6 +562,7 @@ export class TerminalView extends ItemView {
     if (this.fitting) return;
     this.fitting = true;
     try {
+      // Only fit the active main-pane terminal
       const active = this.tabs.find(t => t.id === this.activeTabId);
       if (active) {
         const prev = `${active.terminal.cols}x${active.terminal.rows}`;
@@ -546,7 +570,9 @@ export class TerminalView extends ItemView {
         const curr = `${active.terminal.cols}x${active.terminal.rows}`;
         if (prev !== curr) active.pty.resize(active.terminal.cols, active.terminal.rows);
       }
+      // Only fit split terminals that are actually visible
       for (const split of this.splits) {
+        if (split.el.offsetParent === null) continue; // hidden, skip
         const t = this.tabs.find(tt => tt.id === split.tabId);
         if (t) {
           const prev = `${t.terminal.cols}x${t.terminal.rows}`;
