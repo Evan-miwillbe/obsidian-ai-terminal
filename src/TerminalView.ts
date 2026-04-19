@@ -127,8 +127,15 @@ export class TerminalView extends ItemView {
     // Expose resizer visibility control
     this._resizerEl = resizer;
 
-    // Resize observer
-    this.resizeObserver = new ResizeObserver(() => this.fitAll());
+    // Resize observer — debounced to prevent infinite fit loop
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+    this.resizeObserver = new ResizeObserver(() => {
+      if (resizeTimer) return;
+      resizeTimer = setTimeout(() => {
+        resizeTimer = null;
+        this.fitAll();
+      }, 150);
+    });
     this.resizeObserver.observe(container);
 
     // Hotkey scope
@@ -235,11 +242,9 @@ export class TerminalView extends ItemView {
     // OSC title changes are ignored — tab name stays as "Terminal N" unless user renames
 
     const timers: ReturnType<typeof setTimeout>[] = [];
-    timers.push(setTimeout(() => {
-      fitAddon.fit();
-      pty.resize(terminal.cols, terminal.rows);
-      if (preset?.command) { timers.push(setTimeout(() => { pty.write(preset!.command + "\n"); }, 300)); }
-    }, 100));
+    if (preset?.command) {
+      timers.push(setTimeout(() => { pty.write(preset!.command + "\n"); }, 400));
+    }
 
     const defaultName = preset ? preset.name : `Terminal ${this.tabCounter}`;
     return { id, name: defaultName, userRenamed: false, terminal, fitAddon, pty, el: termEl, timers };
@@ -275,7 +280,6 @@ export class TerminalView extends ItemView {
 
     setTimeout(() => {
       tab.fitAddon.fit();
-      tab.pty.resize(tab.terminal.cols, tab.terminal.rows);
       tab.terminal.focus();
     }, 50);
   }
@@ -489,15 +493,29 @@ export class TerminalView extends ItemView {
     }).open();
   }
 
+  private fitting = false;
   private fitAll(): void {
-    const active = this.tabs.find(t => t.id === this.activeTabId);
-    if (active) {
-      active.fitAddon.fit();
-      active.pty.resize(active.terminal.cols, active.terminal.rows);
-    }
-    for (const split of this.splits) {
-      const t = this.tabs.find(tt => tt.id === split.tabId);
-      if (t) { t.fitAddon.fit(); t.pty.resize(t.terminal.cols, t.terminal.rows); }
+    if (this.fitting) return;
+    this.fitting = true;
+    try {
+      const active = this.tabs.find(t => t.id === this.activeTabId);
+      if (active) {
+        const prev = `${active.terminal.cols}x${active.terminal.rows}`;
+        active.fitAddon.fit();
+        const curr = `${active.terminal.cols}x${active.terminal.rows}`;
+        if (prev !== curr) active.pty.resize(active.terminal.cols, active.terminal.rows);
+      }
+      for (const split of this.splits) {
+        const t = this.tabs.find(tt => tt.id === split.tabId);
+        if (t) {
+          const prev = `${t.terminal.cols}x${t.terminal.rows}`;
+          t.fitAddon.fit();
+          const curr = `${t.terminal.cols}x${t.terminal.rows}`;
+          if (prev !== curr) t.pty.resize(t.terminal.cols, t.terminal.rows);
+        }
+      }
+    } finally {
+      this.fitting = false;
     }
   }
 
