@@ -203,7 +203,7 @@ export class TerminalView extends ItemView {
 
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
-    // NOTE: do NOT call terminal.open() here — element is not in DOM yet
+    terminal.open(termEl);
 
     // Ctrl + scroll wheel to zoom font size
     termEl.addEventListener("wheel", (e: WheelEvent) => {
@@ -241,7 +241,17 @@ export class TerminalView extends ItemView {
     const pty = new PtyProcess(shell, cwd, this.pluginDir, {
       OBSIDIAN_CONTEXT_PIPE: pipePath, OBSIDIAN_VAULT_PATH: vaultPath,
     });
-    pty.on("data", (data: string) => { terminal.write(data); });
+    // Batch PTY output via rAF to prevent rendering flood
+    let writeBuf = "";
+    let writeScheduled = false;
+    const flushWrite = () => {
+      writeScheduled = false;
+      if (writeBuf) { terminal.write(writeBuf); writeBuf = ""; }
+    };
+    pty.on("data", (data: string) => {
+      writeBuf += data;
+      if (!writeScheduled) { writeScheduled = true; requestAnimationFrame(flushWrite); }
+    });
     pty.on("exit", () => { terminal.write("\r\n\x1b[90m[Process exited]\x1b[0m\r\n"); });
     pty.on("error", (err: Error) => { terminal.write(`\r\n\x1b[31m[Error: ${err.message}]\x1b[0m\r\n`); });
     terminal.onData((data: string) => { pty.write(data); });
@@ -252,11 +262,8 @@ export class TerminalView extends ItemView {
     return { id, name: defaultName, userRenamed: false, terminal, fitAddon, pty, el: termEl, timers };
   }
 
-  /** Open xterm into DOM + start PTY. Must be called AFTER el is attached to visible DOM. */
+  /** Start PTY + fit terminal. Called after el is attached to visible DOM. */
   private activateTerminal(tab: TabInstance, preset: Preset | null): void {
-    if (!tab.terminal.element) {
-      tab.terminal.open(tab.el);
-    }
     tab.pty.start();
     tab.fitAddon.fit();
     tab.pty.resize(tab.terminal.cols, tab.terminal.rows);
@@ -294,7 +301,10 @@ export class TerminalView extends ItemView {
     // Detach from wherever it currently is
     tab.el.detach();
 
-    this.mainPaneEl!.empty();
+    // Detach previous content (don't destroy — preserves xterm canvas)
+    while (this.mainPaneEl!.firstChild) {
+      (this.mainPaneEl!.firstChild as HTMLElement).detach();
+    }
     this.mainPaneEl!.appendChild(tab.el);
     tab.el.style.display = "";
 
@@ -314,7 +324,7 @@ export class TerminalView extends ItemView {
     // If this was the active tab in main pane, detach it
     if (this.activeTabId === tabId) {
       tab.el.detach();
-      this.mainPaneEl!.empty();
+      while (this.mainPaneEl!.firstChild) (this.mainPaneEl!.firstChild as HTMLElement).detach();
       this.activeTabId = null;
     }
 
@@ -452,7 +462,7 @@ export class TerminalView extends ItemView {
 
     if (wasActive) {
       this.activeTabId = null;
-      this.mainPaneEl!.empty();
+      while (this.mainPaneEl!.firstChild) (this.mainPaneEl!.firstChild as HTMLElement).detach();
 
       // Find next non-split tab
       const next = this.tabs.find(t => !this.splits.some(s => s.tabId === t.id));
