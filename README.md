@@ -29,6 +29,10 @@ Full TUI support — colors, cursor movement, interactive input — for apps lik
 - **AI CLI presets** — one-click launch for Claude Code, Gemini CLI, or any CLI tool
 - **Vault-aware** — automatically sets working directory to your vault root
 - **No native modules** — works across Obsidian updates without recompilation
+- **Multi-tab** — tab bar with "+" button, switch between terminals within one panel
+- **Split panes** — drag a tab down to pin it as a bottom split pane; resizable divider to adjust height ratio
+- **Close confirmation** — prevents accidental terminal closure
+- **Theme-aware UI** — transparent background, colors adapt to your Obsidian theme
 
 ### Vault Intelligence (Phase 2)
 - **Vault search** — `/search tag:keyword`, `/backlinks`, `/links` with ANSI terminal output
@@ -89,7 +93,7 @@ Both backends use the same protocol:
 ### From Source
 
 ```bash
-git clone https://github.com/Deok-ho/obsidian-ai-terminal.git
+git clone https://github.com/Evan-miwillbe/obsidian-ai-terminal.git
 cd obsidian-ai-terminal
 npm install
 npm run build
@@ -129,7 +133,7 @@ Go to **Settings → AI Terminal → Presets** to add your own:
 | Default shell | `$SHELL` or `/bin/zsh` | `powershell.exe` | Shell to launch |
 | Working directory | Vault root | Vault root | Override with custom path |
 | Font size | 14 | 14 | Terminal font size (10–24) |
-| Font family | MesloLGS NF, Menlo, ... | MesloLGS NF, Menlo, ... | CSS font-family |
+| Font family | Cascadia Code, Consolas, ... | Cascadia Code, Consolas, ... | CSS font-family |
 | Presets | Shell, Claude Code, Gemini CLI | Shell, Claude Code, Gemini CLI | Customizable CLI presets |
 
 ## Architecture
@@ -182,7 +186,7 @@ conpty-bridge/               # Windows: Rust ConPTY bridge
 - [x] Phase 4: Roadmap view (SVG Gantt chart)
 - [x] Phase 5-A: Named Pipe context server + injector
 - [x] Phase 5-B: ACP multi-agent orchestration
-- [ ] Phase 5-C: Multiple terminal tabs, session persistence, theme colors
+- [x] Phase 5-C: Multiple terminal tabs, split panes, close confirmation, theme-aware UI
 - [ ] wmux integration (bidirectional Named Pipe terminal control)
 - [ ] Linux Obsidian GUI test (community plugin registration blocker)
 - [ ] Community plugin store registration
