@@ -256,8 +256,8 @@ export class TerminalView extends ItemView {
       if (preset?.command) { timers.push(setTimeout(() => { pty.write(preset!.command + "\n"); }, 300)); }
     }, 100));
 
-    const shellName = preset ? preset.name : path.basename(shell).replace(/\.(exe|cmd)$/i, "");
-    return { id, name: shellName, userRenamed: false, terminal, fitAddon, pty, el: termEl, timers };
+    const defaultName = preset ? preset.name : `Terminal ${this.tabCounter}`;
+    return { id, name: defaultName, userRenamed: false, terminal, fitAddon, pty, el: termEl, timers };
   }
 
   addTab(preset: Preset | null = null): void {
