@@ -173,7 +173,7 @@ export class TerminalView extends ItemView {
       cursorBlink: true, cursorStyle: "block", allowProposedApi: true,
       theme: {
         background: colors.termBg, foreground: colors.fg, cursor: colors.accent,
-        selectionBackground: colors.accent + "55", selectionForeground: "#ffffff",
+        selectionBackground: colors.accent + "44", selectionForeground: colors.isDark ? "#ffffff" : "#1a1b1e",
         black: colors.faint,
         red: colors.isDark ? "#ff6b6b" : "#d63031", green: colors.isDark ? "#63d471" : "#27ae60",
         yellow: colors.isDark ? "#ffd43b" : "#c69026", blue: colors.isDark ? "#74b9ff" : "#2e86de",
