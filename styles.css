@@ -126,6 +126,29 @@
   color: var(--color-red);
 }
 
+.ai-terminal-tab-rename {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-faint);
+  opacity: 0;
+  transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+
+.ai-terminal-tab-item:hover .ai-terminal-tab-rename {
+  opacity: 1;
+}
+
+.ai-terminal-tab-rename:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
 .ai-terminal-tab-add {
   display: flex;
   align-items: center;

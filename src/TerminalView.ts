@@ -383,7 +383,12 @@ export class TerminalView extends ItemView {
 
   private renderTabButton(tab: TabInstance): void {
     const btn = this.tabBarEl!.createDiv({ cls: "ai-terminal-tab-item", attr: { "data-tab-id": tab.id, draggable: "true" } });
-    const label = btn.createSpan({ cls: "ai-terminal-tab-label", text: tab.name });
+    btn.createSpan({ cls: "ai-terminal-tab-label", text: tab.name });
+    const renameBtn = btn.createSpan({ cls: "ai-terminal-tab-rename", text: "✎" });
+    renameBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.renameTab(tab.id);
+    });
     const closeBtn = btn.createSpan({ cls: "ai-terminal-tab-close", text: "×" });
     closeBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -392,11 +397,6 @@ export class TerminalView extends ItemView {
       this.closeTab(idx);
     });
     btn.addEventListener("click", () => this.showTabInMain(tab.id));
-    btn.addEventListener("contextmenu", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      this.renameTab(tab.id);
-    });
     btn.addEventListener("dragstart", (e: DragEvent) => {
       e.dataTransfer?.setData("text/plain", tab.id);
       e.dataTransfer!.effectAllowed = "move";
