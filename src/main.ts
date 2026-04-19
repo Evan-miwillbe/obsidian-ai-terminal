@@ -54,6 +54,21 @@ export default class AITerminalPlugin extends Plugin {
       callback: () => this.openTerminal(null),
     });
 
+    // Copy active note's absolute path to clipboard
+    this.addCommand({
+      id: "copy-note-path",
+      name: "Copy note path to clipboard",
+      callback: () => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file) { new Notice("No active note"); return; }
+        const vaultPath = (this.app.vault.adapter as any).basePath as string;
+        const absPath = vaultPath + "/" + file.path;
+        navigator.clipboard.writeText(absPath).then(() => {
+          new Notice(`Copied: ${absPath}`, 3000);
+        });
+      },
+    });
+
     // 프리셋별 커맨드 등록
     this.registerPresetCommands();
 
