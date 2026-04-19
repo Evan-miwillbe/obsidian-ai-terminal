@@ -1,4 +1,4 @@
-import { ItemView, Scope, WorkspaceLeaf } from "obsidian";
+import { ItemView, Modal, Scope, WorkspaceLeaf } from "obsidian";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { PtyProcess } from "./PtyProcess";
@@ -488,19 +488,20 @@ export class TerminalView extends ItemView {
   private renameTab(tabId: string): void {
     const tab = this.tabs.find(t => t.id === tabId);
     if (!tab) return;
-    const newName = window.prompt("Rename terminal:", tab.name);
-    if (!newName || !newName.trim() || newName.trim() === tab.name) return;
-    tab.name = newName.trim();
-    tab.userRenamed = true;
-    // Update tab bar label
-    const tabBtn = this.tabBarEl?.querySelector(`[data-tab-id="${tabId}"] .ai-terminal-tab-label`);
-    if (tabBtn) tabBtn.textContent = tab.name;
-    // Update split pane header
-    const split = this.splits.find(s => s.tabId === tabId);
-    if (split) {
-      const nameEl = split.headerEl.querySelector(".ai-terminal-split-name");
-      if (nameEl) nameEl.textContent = tab.name;
-    }
+    new RenameModal(this.app, tab.name, (newName) => {
+      if (!newName.trim() || newName.trim() === tab.name) return;
+      tab.name = newName.trim();
+      tab.userRenamed = true;
+      // Update tab bar label
+      const tabBtn = this.tabBarEl?.querySelector(`[data-tab-id="${tabId}"] .ai-terminal-tab-label`);
+      if (tabBtn) tabBtn.textContent = tab.name;
+      // Update split pane header
+      const split = this.splits.find(s => s.tabId === tabId);
+      if (split) {
+        const nameEl = split.headerEl.querySelector(".ai-terminal-split-name");
+        if (nameEl) nameEl.textContent = tab.name;
+      }
+    }).open();
   }
 
   private fitAll(): void {
@@ -536,5 +537,53 @@ export class TerminalView extends ItemView {
     this.splits = [];
     if (this.keymapScopeActive) { this.app.keymap.popScope(this.keymapScope); this.keymapScopeActive = false; }
     this.resizeObserver?.disconnect();
+  }
+}
+
+class RenameModal extends Modal {
+  constructor(
+    app: import("obsidian").App,
+    private currentName: string,
+    private onSubmit: (name: string) => void,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h4", { text: "Rename terminal" });
+
+    const inputEl = contentEl.createEl("input", {
+      type: "text",
+      value: this.currentName,
+      cls: "ai-terminal-rename-input",
+    });
+    inputEl.style.cssText = "width:100%;padding:6px 8px;font-size:14px;margin:8px 0;border:1px solid var(--background-modifier-border);border-radius:4px;background:var(--background-primary);color:var(--text-normal);";
+
+    const submit = () => {
+      const val = inputEl.value.trim();
+      if (val) this.onSubmit(val);
+      this.close();
+    };
+
+    inputEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") submit();
+      if (e.key === "Escape") this.close();
+    });
+
+    const btnRow = contentEl.createDiv({ cls: "ai-terminal-rename-btns" });
+    btnRow.style.cssText = "display:flex;gap:8px;justify-content:flex-end;margin-top:8px;";
+    const cancelBtn = btnRow.createEl("button", { text: "Cancel" });
+    cancelBtn.addEventListener("click", () => this.close());
+    const okBtn = btnRow.createEl("button", { text: "Rename", cls: "mod-cta" });
+    okBtn.addEventListener("click", submit);
+
+    // Focus and select current name
+    setTimeout(() => { inputEl.focus(); inputEl.select(); }, 50);
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
   }
 }
