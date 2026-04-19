@@ -188,6 +188,21 @@ export class TerminalView extends ItemView {
     terminal.loadAddon(fitAddon);
     terminal.open(termEl);
 
+    // Ctrl + scroll wheel to zoom font size
+    termEl.addEventListener("wheel", (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const current = terminal.options.fontSize as number;
+      const delta = e.deltaY < 0 ? 1 : -1;
+      const next = Math.max(8, Math.min(32, current + delta));
+      if (next !== current) {
+        terminal.options.fontSize = next;
+        fitAddon.fit();
+        pty.resize(terminal.cols, terminal.rows);
+      }
+    }, { passive: false });
+
     terminal.attachCustomKeyEventHandler((e: KeyboardEvent) => {
       if (e.ctrlKey && e.type === "keydown") {
         const key = e.key.toLowerCase();
@@ -214,6 +229,22 @@ export class TerminalView extends ItemView {
     pty.on("error", (err: Error) => { terminal.write(`\r\n\x1b[31m[Error: ${err.message}]\x1b[0m\r\n`); });
     pty.start();
     terminal.onData((data: string) => { pty.write(data); });
+
+    // Auto-rename tab when the running program sets terminal title (OSC escape sequence)
+    terminal.onTitleChange((title: string) => {
+      const tab = this.tabs.find(t => t.id === id);
+      if (!tab || !title.trim()) return;
+      tab.name = title;
+      // Update tab bar label
+      const tabBtn = this.tabBarEl?.querySelector(`[data-tab-id="${id}"] .ai-terminal-tab-label`);
+      if (tabBtn) tabBtn.textContent = title;
+      // Update split pane header
+      const split = this.splits.find(s => s.tabId === id);
+      if (split) {
+        const nameEl = split.headerEl.querySelector(".ai-terminal-split-name");
+        if (nameEl) nameEl.textContent = title;
+      }
+    });
 
     const timers: ReturnType<typeof setTimeout>[] = [];
     timers.push(setTimeout(() => {
