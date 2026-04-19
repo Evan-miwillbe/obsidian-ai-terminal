@@ -236,6 +236,7 @@
 }
 
 .ai-terminal-xterm {
+  flex: 1;
   height: 100%;
   overflow: hidden;
   padding: 8px 4px;
@@ -284,45 +285,6 @@
 
 .ai-terminal-tab-item[draggable="true"] { cursor: grab; }
 .ai-terminal-tab-item[draggable="true"]:active { cursor: grabbing; }
-
-.ai-terminal-xterm {
-  flex: 1;
-  overflow: hidden;
-  padding: 8px 4px;
-  background: transparent;
-  border-radius: 6px;
-}
-
-/* xterm.js 기본 스타일 오버라이드 */
-.ai-terminal-xterm .xterm {
-  height: 100%;
-}
-
-.ai-terminal-xterm .xterm-viewport {
-  overflow-y: auto;
-}
-
-.ai-terminal-xterm .xterm-screen {
-  height: 100%;
-}
-
-/* 스크롤바 스타일 — 참고: Claudian 스타일 */
-.ai-terminal-xterm .xterm-viewport::-webkit-scrollbar {
-  width: 6px;
-}
-
-.ai-terminal-xterm .xterm-viewport::-webkit-scrollbar-thumb {
-  background: var(--background-modifier-border);
-  border-radius: 3px;
-}
-
-.ai-terminal-xterm .xterm-viewport::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.ai-terminal-xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: var(--text-faint);
-}
 
 /* === Schema Map View === */
 
