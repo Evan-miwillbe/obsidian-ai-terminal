@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { PtyProcess } from "./PtyProcess";
 import type { AITerminalSettings, Preset } from "./Settings";
+import type { IDecoration, IMarker } from "@xterm/xterm";
 
 export const VIEW_TYPE_TERMINAL = "ai-terminal-view";
 
@@ -21,6 +22,10 @@ interface TabInstance {
   writer: TerminalWritePump;
   el: HTMLElement;
   timers: ReturnType<typeof setTimeout>[];
+  cursorFocused: boolean;
+  cursorFrameId: number | null;
+  cursorDecoration: IDecoration | null;
+  cursorMarker: IMarker | null;
 }
 
 interface SplitPane {
@@ -382,6 +387,11 @@ export class TerminalView extends ItemView {
   private disposeTab(tab: TabInstance): void {
     for (const timer of tab.timers) clearTimeout(timer);
     tab.timers.length = 0;
+    if (tab.cursorFrameId !== null) {
+      window.cancelAnimationFrame(tab.cursorFrameId);
+      tab.cursorFrameId = null;
+    }
+    this.disposeCursorIndicator(tab);
 
     tab.writer.dispose();
     tab.pty.removeAllListeners();
@@ -405,22 +415,77 @@ export class TerminalView extends ItemView {
     }
   }
 
-  private shouldKickWindowsPrompt(tab: TabInstance): boolean {
-    if (process.platform !== "win32") return false;
-    const shell = this.settings.defaultShell || "";
-    if (!/pwsh|powershell/i.test(shell)) return false;
+  private focusTerminal(tab: TabInstance): void {
+    this.app.workspace.setActiveLeaf(this.leaf, { focus: true });
+    tab.terminal.focus();
+    const textarea = tab.el.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement | null;
+    if (textarea && document.activeElement !== textarea) {
+      textarea.focus();
+    }
+  }
 
-    const firstLine = tab.terminal.buffer.active.getLine(0)?.translateToString(true).trim() ?? "";
-    const visibleLines = Math.min(tab.terminal.buffer.active.length, 12);
+  private focusTerminalSoon(tab: TabInstance): void {
+    Promise.resolve().then(() => {
+      if (this.getTab(tab.id) !== tab) return;
+      this.focusTerminal(tab);
+    });
+  }
 
-    for (let i = 0; i < visibleLines; i++) {
-      const line = tab.terminal.buffer.active.getLine(i)?.translateToString(true).trim() ?? "";
-      if (/^[A-Z]:\\.*>\s*$/.test(line) || /^PS [A-Z]:\\.*>\s*$/.test(line)) {
-        return false;
-      }
+  private disposeCursorIndicator(tab: TabInstance): void {
+    tab.cursorDecoration?.dispose();
+    tab.cursorDecoration = null;
+    tab.cursorMarker?.dispose();
+    tab.cursorMarker = null;
+  }
+
+  private applyCursorIndicatorStyle(tab: TabInstance, element: HTMLElement): void {
+    element.className = "ai-terminal-cursor-indicator";
+    element.classList.toggle("is-focused", tab.cursorFocused);
+    element.classList.toggle("is-blurred", !tab.cursorFocused);
+  }
+
+  private renderCursorIndicator(tab: TabInstance): void {
+    this.disposeCursorIndicator(tab);
+    if (!tab.el.isConnected || !tab.terminal.element) return;
+
+    const marker = tab.terminal.registerMarker(0);
+    if (!marker) return;
+
+    const decoration = tab.terminal.registerDecoration({
+      marker,
+      x: tab.terminal.buffer.active.cursorX,
+      width: 1,
+      height: 1,
+      layer: "top",
+    });
+
+    if (!decoration) {
+      marker.dispose();
+      return;
     }
 
-    return /powershell/i.test(firstLine) && tab.terminal.buffer.active.cursorY <= 1;
+    const apply = (element: HTMLElement) => {
+      this.applyCursorIndicatorStyle(tab, element);
+    };
+
+    if (decoration.element) {
+      apply(decoration.element);
+    }
+    decoration.onRender(apply);
+
+    tab.cursorMarker = marker;
+    tab.cursorDecoration = decoration;
+  }
+
+  private scheduleCursorIndicator(tab: TabInstance): void {
+    if (tab.cursorFrameId !== null) {
+      window.cancelAnimationFrame(tab.cursorFrameId);
+    }
+    tab.cursorFrameId = window.requestAnimationFrame(() => {
+      tab.cursorFrameId = null;
+      if (this.getTab(tab.id) !== tab) return;
+      this.renderCursorIndicator(tab);
+    });
   }
 
   /** Create terminal infrastructure (PTY, xterm config) but do NOT open into DOM yet */
@@ -464,7 +529,10 @@ export class TerminalView extends ItemView {
 
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
-    terminal.open(termEl);
+    termEl.addEventListener("mousedown", () => {
+      this.app.workspace.setActiveLeaf(this.leaf, { focus: true });
+      terminal.focus();
+    });
 
     termEl.addEventListener("wheel", (e: WheelEvent) => {
       if (!e.ctrlKey) return;
@@ -516,15 +584,9 @@ export class TerminalView extends ItemView {
     });
 
     const writer = createTerminalWritePump(terminal);
-    pty.on("data", (data: string) => { writer.enqueue(data); });
-    pty.on("exit", () => { writer.enqueue("\r\n\x1b[90m[Process exited]\x1b[0m\r\n"); });
-    pty.on("error", (err: Error) => { writer.enqueue(`\r\n\x1b[31m[Error: ${err.message}]\x1b[0m\r\n`); });
-    terminal.onData((data: string) => { pty.write(data); });
-
     const timers: ReturnType<typeof setTimeout>[] = [];
     const defaultName = preset ? preset.name : `Terminal ${this.tabCounter}`;
-
-    return {
+    const tab: TabInstance = {
       id,
       name: defaultName,
       userRenamed: false,
@@ -534,25 +596,65 @@ export class TerminalView extends ItemView {
       writer,
       el: termEl,
       timers,
+      cursorFocused: false,
+      cursorFrameId: null,
+      cursorDecoration: null,
+      cursorMarker: null,
     };
+
+    termEl.addEventListener("focusin", () => {
+      tab.cursorFocused = true;
+      this.scheduleCursorIndicator(tab);
+    });
+    termEl.addEventListener("focusout", (e: FocusEvent) => {
+      if (e.relatedTarget instanceof Node && termEl.contains(e.relatedTarget)) return;
+      tab.cursorFocused = false;
+      this.scheduleCursorIndicator(tab);
+    });
+
+    pty.on("data", (data: string) => {
+      writer.enqueue(data);
+    });
+    pty.on("exit", () => {
+      writer.enqueue("\r\n\x1b[90m[Process exited]\x1b[0m\r\n");
+    });
+    pty.on("error", (err: Error) => {
+      writer.enqueue(`\r\n\x1b[31m[Error: ${err.message}]\x1b[0m\r\n`);
+    });
+    terminal.onData((data: string) => {
+      pty.write(data);
+    });
+    terminal.onCursorMove(() => {
+      this.scheduleCursorIndicator(tab);
+    });
+
+    return tab;
   }
 
   /** Start PTY + fit terminal. Called after el is attached to visible DOM. */
   private activateTerminal(tab: TabInstance, preset: Preset | null): void {
-    tab.pty.start();
-    tab.fitAddon.fit();
-    tab.pty.resize(tab.terminal.cols, tab.terminal.rows);
-    tab.terminal.focus();
-    this.scheduleFitAll();
-
-    if (!preset?.command) {
-      tab.timers.push(setTimeout(() => {
-        if (this.getTab(tab.id) !== tab || !tab.pty.isRunning) return;
-        if (this.shouldKickWindowsPrompt(tab)) {
-          tab.pty.write("\n");
-        }
-      }, 250));
+    if (!tab.terminal.element) {
+      tab.terminal.open(tab.el);
     }
+
+    tab.pty.start();
+    this.fitTab(tab);
+    tab.timers.push(setTimeout(() => {
+      if (this.getTab(tab.id) !== tab || !tab.el.isConnected) return;
+      this.fitTab(tab);
+      this.scheduleCursorIndicator(tab);
+    }, 50));
+    tab.timers.push(setTimeout(() => {
+      if (this.getTab(tab.id) !== tab || !tab.el.isConnected) return;
+      this.fitTab(tab);
+      this.scheduleCursorIndicator(tab);
+    }, 180));
+
+    tab.cursorFocused = true;
+    this.focusTerminal(tab);
+    this.focusTerminalSoon(tab);
+    this.scheduleCursorIndicator(tab);
+    this.scheduleFitAll();
 
     if (preset?.command) {
       tab.timers.push(setTimeout(() => {
@@ -576,7 +678,10 @@ export class TerminalView extends ItemView {
     const tab = this.getTab(tabId);
     if (!tab) return;
     if (this.activeTabId === tabId && tab.el.parentElement === this.mainPaneEl) {
-      tab.terminal.focus();
+      tab.cursorFocused = true;
+      this.focusTerminal(tab);
+      this.focusTerminalSoon(tab);
+      this.scheduleCursorIndicator(tab);
       return;
     }
 
@@ -587,7 +692,10 @@ export class TerminalView extends ItemView {
 
     this.activeTabId = tabId;
     this.updateTabHighlight();
-    tab.terminal.focus();
+    tab.cursorFocused = true;
+    this.focusTerminal(tab);
+    this.focusTerminalSoon(tab);
+    this.scheduleCursorIndicator(tab);
     this.scheduleFitAll();
   }
 
