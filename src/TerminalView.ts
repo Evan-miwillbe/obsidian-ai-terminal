@@ -1,12 +1,15 @@
 import { ItemView, Modal, Notice, Scope, WorkspaceLeaf } from "obsidian";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { WebglAddon } from "@xterm/addon-webgl";
 import { PtyProcess } from "./PtyProcess";
 import type { AITerminalSettings, Preset } from "./Settings";
-import * as path from "path";
 
 export const VIEW_TYPE_TERMINAL = "ai-terminal-view";
+
+interface TerminalWritePump {
+  enqueue(data: string): void;
+  dispose(): void;
+}
 
 interface TabInstance {
   id: string;
@@ -27,16 +30,12 @@ interface SplitPane {
   headerEl: HTMLElement;
 }
 
-interface TerminalWritePump {
-  enqueue(data: string): void;
-  dispose(): void;
-}
-
 const WRITE_BATCH_CHARS = 32 * 1024;
 const WRITE_IMMEDIATE_THRESHOLD = 128 * 1024;
 
 function createTerminalWritePump(terminal: Terminal): TerminalWritePump {
   const chunks: string[] = [];
+  let readIndex = 0;
   let queuedChars = 0;
   let frameId: number | null = null;
   let timeoutId: number | null = null;
@@ -54,21 +53,60 @@ function createTerminalWritePump(terminal: Terminal): TerminalWritePump {
     }
   };
 
+  const compactQueue = () => {
+    if (readIndex === 0) return;
+    if (readIndex >= chunks.length) {
+      chunks.length = 0;
+      readIndex = 0;
+      return;
+    }
+    if (readIndex > 64 && readIndex * 2 >= chunks.length) {
+      chunks.splice(0, readIndex);
+      readIndex = 0;
+    }
+  };
+
+  const schedule = () => {
+    if (disposed || writing || queuedChars === 0 || frameId !== null || timeoutId !== null) return;
+    const flush = () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+        frameId = null;
+      }
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      drain();
+    };
+
+    frameId = window.requestAnimationFrame(() => {
+      flush();
+    });
+    timeoutId = window.setTimeout(() => {
+      flush();
+    }, 24);
+  };
+
   const drain = () => {
     clearPending();
     if (disposed || writing || queuedChars === 0) return;
 
     const batch: string[] = [];
     let batchChars = 0;
-    while (chunks.length > 0 && batchChars < WRITE_BATCH_CHARS) {
-      const chunk = chunks.shift();
+    while (readIndex < chunks.length && batchChars < WRITE_BATCH_CHARS) {
+      const chunk = chunks[readIndex++];
       if (!chunk) continue;
       batch.push(chunk);
       batchChars += chunk.length;
     }
 
-    if (batch.length === 0) return;
+    if (batch.length === 0) {
+      compactQueue();
+      return;
+    }
 
+    compactQueue();
     queuedChars = Math.max(0, queuedChars - batchChars);
     writing = true;
     terminal.write(batch.join(""), () => {
@@ -77,21 +115,6 @@ function createTerminalWritePump(terminal: Terminal): TerminalWritePump {
         schedule();
       }
     });
-  };
-
-  const schedule = () => {
-    if (disposed || writing || queuedChars === 0 || frameId !== null || timeoutId !== null) return;
-    if (document.visibilityState === "visible") {
-      frameId = window.requestAnimationFrame(() => {
-        frameId = null;
-        drain();
-      });
-      return;
-    }
-    timeoutId = window.setTimeout(() => {
-      timeoutId = null;
-      drain();
-    }, 16);
   };
 
   return {
@@ -110,6 +133,7 @@ function createTerminalWritePump(terminal: Terminal): TerminalWritePump {
     dispose() {
       disposed = true;
       chunks.length = 0;
+      readIndex = 0;
       queuedChars = 0;
       clearPending();
     },
@@ -117,16 +141,13 @@ function createTerminalWritePump(terminal: Terminal): TerminalWritePump {
 }
 
 export class TerminalView extends ItemView {
-  // Tab bar tabs (shown in main pane, one at a time)
   private tabs: TabInstance[] = [];
   private activeTabId: string | null = null;
-  // Split panes (pinned below, each shows one terminal)
   private splits: SplitPane[] = [];
 
   private tabBarEl: HTMLElement | null = null;
   private mainPaneEl: HTMLElement | null = null;
   private splitsWrapperEl: HTMLElement | null = null;
-  private containerEl_: HTMLElement | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private preset: Preset | null;
   private settings: AITerminalSettings;
@@ -134,7 +155,9 @@ export class TerminalView extends ItemView {
   private keymapScope = new Scope();
   private keymapScopeActive = false;
   private tabCounter = 0;
-  private _resizerEl: HTMLElement | null = null;
+  private resizerEl: HTMLElement | null = null;
+  private fitFrameId: number | null = null;
+  private fitTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(leaf: WorkspaceLeaf, settings: AITerminalSettings, pluginDir: string, preset: Preset | null = null) {
     super(leaf);
@@ -151,32 +174,26 @@ export class TerminalView extends ItemView {
     const container = this.containerEl.children[1] as HTMLElement;
     container.empty();
     container.addClass("ai-terminal-container");
-    this.containerEl_ = container;
 
-    // Tab bar
     this.tabBarEl = container.createDiv({ cls: "ai-terminal-tab-bar" });
 
-    // Add terminal button (will be repositioned after tabs via CSS)
     const addBtn = this.tabBarEl.createDiv({ cls: "ai-terminal-tab-add", attr: { "aria-label": "New terminal" } });
     addBtn.setText("+");
     addBtn.addEventListener("click", () => this.addTab());
 
-    // Copy note path button (right side)
     const copyBtn = this.tabBarEl.createDiv({ cls: "ai-terminal-tab-copy", attr: { "aria-label": "Copy note path" } });
     copyBtn.setText("📄");
     copyBtn.addEventListener("click", () => this.copyNotePath());
 
-    // Main pane — shows the active tab from tab bar
     this.mainPaneEl = container.createDiv({ cls: "ai-terminal-main-pane" });
 
-    // Drop zone on main pane — drag a tab here to split it out below
     let dropIndicator: HTMLElement | null = null;
     this.mainPaneEl.addEventListener("dragover", (e: DragEvent) => {
       e.preventDefault();
-      e.dataTransfer!.dropEffect = "move";
+      if (!e.dataTransfer) return;
+      e.dataTransfer.dropEffect = "move";
       if (!dropIndicator) {
         dropIndicator = this.mainPaneEl!.createDiv({ cls: "ai-terminal-drop-indicator" });
-        dropIndicator.style.bottom = "0";
       }
     });
     this.mainPaneEl.addEventListener("dragleave", () => {
@@ -192,24 +209,15 @@ export class TerminalView extends ItemView {
       this.splitOutTab(tabId);
     });
 
-    // Draggable divider between main pane and splits (hidden until split exists)
     const resizer = container.createDiv({ cls: "ai-terminal-resizer" });
+    this.resizerEl = resizer;
 
-    // Splits wrapper — hidden until a split exists
     this.splitsWrapperEl = container.createDiv({ cls: "ai-terminal-splits-wrapper" });
-    this.splitsWrapperEl.style.display = "none";
-    resizer.style.display = "none";
+    this.setSplitsVisible(false);
+
     let startY = 0;
     let startMainH = 0;
     let startSplitsH = 0;
-    resizer.addEventListener("mousedown", (e: MouseEvent) => {
-      e.preventDefault();
-      startY = e.clientY;
-      startMainH = this.mainPaneEl!.getBoundingClientRect().height;
-      startSplitsH = this.splitsWrapperEl!.getBoundingClientRect().height;
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
-    });
     const onMove = (e: MouseEvent) => {
       const delta = e.clientY - startY;
       const newMainH = Math.max(80, startMainH + delta);
@@ -220,44 +228,52 @@ export class TerminalView extends ItemView {
     const onUp = () => {
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
-      // Keep the user-chosen heights — don't reset flex
-      this.fitAll();
+      this.scheduleFitAll();
     };
-    // Expose resizer visibility control
-    this._resizerEl = resizer;
+    resizer.addEventListener("mousedown", (e: MouseEvent) => {
+      e.preventDefault();
+      startY = e.clientY;
+      startMainH = this.mainPaneEl!.getBoundingClientRect().height;
+      startSplitsH = this.splitsWrapperEl!.getBoundingClientRect().height;
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
 
-    // Resize observer — heavily debounced, only on real size change
-    let lastW = 0, lastH = 0;
+    let lastW = 0;
+    let lastH = 0;
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     this.resizeObserver = new ResizeObserver((entries) => {
-      const e = entries[0];
-      if (!e) return;
-      const w = Math.round(e.contentRect.width);
-      const h = Math.round(e.contentRect.height);
+      const entry = entries[0];
+      if (!entry) return;
+      const w = Math.round(entry.contentRect.width);
+      const h = Math.round(entry.contentRect.height);
       if (w === lastW && h === lastH) return;
-      lastW = w; lastH = h;
+      lastW = w;
+      lastH = h;
+
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
         resizeTimer = null;
-        this.fitAll();
-        // Force full refresh after resize to prevent garbled rendering
-        const active = this.tabs.find(t => t.id === this.activeTabId);
-        if (active) active.terminal.refresh(0, active.terminal.rows - 1);
-      }, 400);
+        this.scheduleFitAll();
+      }, 120);
     });
     this.resizeObserver.observe(container);
 
-    // Hotkey scope
     const scopeTarget = container;
     this.registerDomEvent(scopeTarget, "focusin", () => {
-      if (!this.keymapScopeActive) { this.app.keymap.pushScope(this.keymapScope); this.keymapScopeActive = true; }
+      if (!this.keymapScopeActive) {
+        this.app.keymap.pushScope(this.keymapScope);
+        this.keymapScopeActive = true;
+      }
     });
     this.registerDomEvent(scopeTarget, "focusout", (e: FocusEvent) => {
       if (e.relatedTarget instanceof Node && scopeTarget.contains(e.relatedTarget)) return;
-      if (this.keymapScopeActive) { this.app.keymap.popScope(this.keymapScope); this.keymapScopeActive = false; }
+      if (this.keymapScopeActive) {
+        this.app.keymap.popScope(this.keymapScope);
+        this.keymapScopeActive = false;
+      }
     });
 
-    // Open initial tab
     this.addTab(this.preset);
   }
 
@@ -266,8 +282,9 @@ export class TerminalView extends ItemView {
     const bgRaw = cs.getPropertyValue("--background-primary").trim() || "#1e1e2e";
     const accent = cs.getPropertyValue("--interactive-accent").trim() || "#7f6df2";
     const isDark = bgRaw.match(/[0-9a-f]{6}/i)
-      ? parseInt(bgRaw.slice(1,3),16)*0.299 + parseInt(bgRaw.slice(3,5),16)*0.587 + parseInt(bgRaw.slice(5,7),16)*0.114 < 128
+      ? parseInt(bgRaw.slice(1, 3), 16) * 0.299 + parseInt(bgRaw.slice(3, 5), 16) * 0.587 + parseInt(bgRaw.slice(5, 7), 16) * 0.114 < 128
       : true;
+
     return {
       isDark,
       fg: isDark ? "#e2e4e9" : "#1a1b1e",
@@ -278,6 +295,134 @@ export class TerminalView extends ItemView {
     };
   }
 
+  private getTab(tabId: string | null): TabInstance | null {
+    if (!tabId) return null;
+    return this.tabs.find((tab) => tab.id === tabId) ?? null;
+  }
+
+  private isTabSplit(tabId: string): boolean {
+    return this.splits.some((split) => split.tabId === tabId);
+  }
+
+  private getNextMainTab(excludeTabId?: string): TabInstance | null {
+    return this.tabs.find((tab) => tab.id !== excludeTabId && !this.isTabSplit(tab.id)) ?? null;
+  }
+
+  private clearMainPane(): void {
+    if (!this.mainPaneEl) return;
+    while (this.mainPaneEl.firstChild) {
+      (this.mainPaneEl.firstChild as HTMLElement).detach();
+    }
+  }
+
+  private removeTabButton(tabId: string): void {
+    this.tabBarEl?.querySelector(`[data-tab-id="${tabId}"]`)?.remove();
+  }
+
+  private removeSplitDivider(splitIdx: number): void {
+    const dividers = Array.from(this.splitsWrapperEl?.querySelectorAll(".ai-terminal-divider") ?? []);
+    if (dividers.length === 0) return;
+    dividers[Math.min(splitIdx, dividers.length - 1)]?.remove();
+  }
+
+  private setSplitsVisible(visible: boolean): void {
+    if (this.resizerEl) this.resizerEl.style.display = visible ? "" : "none";
+    if (!this.splitsWrapperEl || !this.mainPaneEl) return;
+
+    if (visible) {
+      this.splitsWrapperEl.style.display = "";
+      return;
+    }
+
+    this.mainPaneEl.style.flex = "";
+    this.splitsWrapperEl.style.flex = "";
+    this.splitsWrapperEl.style.display = "none";
+  }
+
+  private scheduleFitAll(delayMs = 0): void {
+    if (this.fitTimer) {
+      clearTimeout(this.fitTimer);
+      this.fitTimer = null;
+    }
+    if (this.fitFrameId !== null) {
+      window.cancelAnimationFrame(this.fitFrameId);
+      this.fitFrameId = null;
+    }
+
+    const run = () => {
+      this.fitFrameId = window.requestAnimationFrame(() => {
+        this.fitFrameId = null;
+        this.fitAll();
+      });
+    };
+
+    if (delayMs > 0) {
+      this.fitTimer = setTimeout(() => {
+        this.fitTimer = null;
+        run();
+      }, delayMs);
+      return;
+    }
+
+    run();
+  }
+
+  private bindAction(target: HTMLElement, handler: () => void): void {
+    target.addEventListener("mousedown", (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    target.addEventListener("click", (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      handler();
+    });
+  }
+
+  private disposeTab(tab: TabInstance): void {
+    for (const timer of tab.timers) clearTimeout(timer);
+    tab.timers.length = 0;
+
+    tab.writer.dispose();
+    tab.pty.removeAllListeners();
+
+    try {
+      tab.pty.kill();
+    } catch (err) {
+      console.error("AI Terminal: failed to stop PTY.", err);
+    }
+
+    try {
+      tab.terminal.dispose();
+    } catch (err) {
+      console.error("AI Terminal: failed to dispose terminal.", err);
+    }
+
+    try {
+      tab.el.remove();
+    } catch (err) {
+      console.error("AI Terminal: failed to remove terminal element.", err);
+    }
+  }
+
+  private shouldKickWindowsPrompt(tab: TabInstance): boolean {
+    if (process.platform !== "win32") return false;
+    const shell = this.settings.defaultShell || "";
+    if (!/pwsh|powershell/i.test(shell)) return false;
+
+    const firstLine = tab.terminal.buffer.active.getLine(0)?.translateToString(true).trim() ?? "";
+    const visibleLines = Math.min(tab.terminal.buffer.active.length, 12);
+
+    for (let i = 0; i < visibleLines; i++) {
+      const line = tab.terminal.buffer.active.getLine(i)?.translateToString(true).trim() ?? "";
+      if (/^[A-Z]:\\.*>\s*$/.test(line) || /^PS [A-Z]:\\.*>\s*$/.test(line)) {
+        return false;
+      }
+    }
+
+    return /powershell/i.test(firstLine) && tab.terminal.buffer.active.cursorY <= 1;
+  }
+
   /** Create terminal infrastructure (PTY, xterm config) but do NOT open into DOM yet */
   private createTerminalInstance(id: string, preset: Preset | null): TabInstance {
     const colors = this.getThemeColors();
@@ -286,21 +431,33 @@ export class TerminalView extends ItemView {
     const terminal = new Terminal({
       fontSize: this.settings.fontSize,
       fontFamily: this.settings.fontFamily,
-      cursorBlink: true, cursorStyle: "block", allowProposedApi: true,
+      cursorBlink: true,
+      cursorStyle: "block",
+      allowProposedApi: true,
       scrollback: 1000,
       fastScrollModifier: "alt",
       fastScrollSensitivity: 5,
       theme: {
-        background: colors.termBg, foreground: colors.fg, cursor: colors.accent,
-        selectionBackground: colors.isDark ? "#264f78" : "#add6ff", selectionForeground: colors.isDark ? "#ffffff" : "#000000",
+        background: colors.termBg,
+        foreground: colors.fg,
+        cursor: colors.accent,
+        selectionBackground: colors.isDark ? "#264f78" : "#add6ff",
+        selectionForeground: colors.isDark ? "#ffffff" : "#000000",
         black: colors.faint,
-        red: colors.isDark ? "#ff6b6b" : "#d63031", green: colors.isDark ? "#63d471" : "#27ae60",
-        yellow: colors.isDark ? "#ffd43b" : "#c69026", blue: colors.isDark ? "#74b9ff" : "#2e86de",
-        magenta: colors.isDark ? "#d19df0" : "#a55eea", cyan: colors.isDark ? "#63e6e2" : "#00b894",
-        white: colors.fg, brightBlack: colors.muted,
-        brightRed: colors.isDark ? "#ff8787" : "#e74c3c", brightGreen: colors.isDark ? "#8ce99a" : "#2ecc71",
-        brightYellow: colors.isDark ? "#ffe066" : "#d4a017", brightBlue: colors.isDark ? "#91c8f5" : "#3498db",
-        brightMagenta: colors.isDark ? "#e0b0ff" : "#9b59b6", brightCyan: colors.isDark ? "#81ecec" : "#1abc9c",
+        red: colors.isDark ? "#ff6b6b" : "#d63031",
+        green: colors.isDark ? "#63d471" : "#27ae60",
+        yellow: colors.isDark ? "#ffd43b" : "#c69026",
+        blue: colors.isDark ? "#74b9ff" : "#2e86de",
+        magenta: colors.isDark ? "#d19df0" : "#a55eea",
+        cyan: colors.isDark ? "#63e6e2" : "#00b894",
+        white: colors.fg,
+        brightBlack: colors.muted,
+        brightRed: colors.isDark ? "#ff8787" : "#e74c3c",
+        brightGreen: colors.isDark ? "#8ce99a" : "#2ecc71",
+        brightYellow: colors.isDark ? "#ffe066" : "#d4a017",
+        brightBlue: colors.isDark ? "#91c8f5" : "#3498db",
+        brightMagenta: colors.isDark ? "#e0b0ff" : "#9b59b6",
+        brightCyan: colors.isDark ? "#81ecec" : "#1abc9c",
         brightWhite: colors.isDark ? "#caced6" : "#3d3f47",
       },
     });
@@ -309,14 +466,6 @@ export class TerminalView extends ItemView {
     terminal.loadAddon(fitAddon);
     terminal.open(termEl);
 
-    // GPU-accelerated rendering — fallback to canvas if WebGL unavailable
-    try {
-      const webglAddon = new WebglAddon();
-      webglAddon.onContextLoss(() => { webglAddon.dispose(); });
-      terminal.loadAddon(webglAddon);
-    } catch { /* canvas fallback */ }
-
-    // Ctrl + scroll wheel to zoom font size
     termEl.addEventListener("wheel", (e: WheelEvent) => {
       if (!e.ctrlKey) return;
       e.preventDefault();
@@ -324,23 +473,34 @@ export class TerminalView extends ItemView {
       const current = terminal.options.fontSize as number;
       const delta = e.deltaY < 0 ? 1 : -1;
       const next = Math.max(8, Math.min(32, current + delta));
-      if (next !== current) {
-        terminal.options.fontSize = next;
-        fitAddon.fit();
-        pty.resize(terminal.cols, terminal.rows);
-        terminal.refresh(0, terminal.rows - 1);
-      }
+      if (next === current) return;
+
+      terminal.options.fontSize = next;
+      fitAddon.fit();
+      pty.resize(terminal.cols, terminal.rows);
+      this.scheduleFitAll();
     }, { passive: false });
 
     terminal.attachCustomKeyEventHandler((e: KeyboardEvent) => {
       if (e.ctrlKey && e.type === "keydown") {
         const key = e.key.toLowerCase();
-        const tab = this.tabs.find(t => t.id === id) || this.splits.flatMap(s => {
-          const t = this.tabs.find(tt => tt.id === s.tabId); return t ? [t] : [];
-        }).find(t => t.id === id);
-        if (key === "enter") { tab?.pty.write("\n"); return false; }
-        if (key === "c" && terminal.hasSelection()) { navigator.clipboard.writeText(terminal.getSelection()).catch(() => {}); terminal.clearSelection(); return false; }
-        if (key === "v") { e.preventDefault(); navigator.clipboard.readText().then((text) => { tab?.pty.write(text); }).catch(() => {}); return false; }
+        const tab = this.getTab(id);
+        if (key === "enter") {
+          tab?.pty.write("\n");
+          return false;
+        }
+        if (key === "c" && terminal.hasSelection()) {
+          navigator.clipboard.writeText(terminal.getSelection()).catch(() => {});
+          terminal.clearSelection();
+          return false;
+        }
+        if (key === "v") {
+          e.preventDefault();
+          navigator.clipboard.readText().then((text) => {
+            tab?.pty.write(text);
+          }).catch(() => {});
+          return false;
+        }
       }
       return true;
     });
@@ -351,8 +511,10 @@ export class TerminalView extends ItemView {
     const pipePath = process.platform === "win32" ? "\\\\.\\pipe\\obsidian-ai-terminal" : "/tmp/obsidian-ai-terminal.sock";
 
     const pty = new PtyProcess(shell, cwd, this.pluginDir, {
-      OBSIDIAN_CONTEXT_PIPE: pipePath, OBSIDIAN_VAULT_PATH: vaultPath,
+      OBSIDIAN_CONTEXT_PIPE: pipePath,
+      OBSIDIAN_VAULT_PATH: vaultPath,
     });
+
     const writer = createTerminalWritePump(terminal);
     pty.on("data", (data: string) => { writer.enqueue(data); });
     pty.on("exit", () => { writer.enqueue("\r\n\x1b[90m[Process exited]\x1b[0m\r\n"); });
@@ -360,9 +522,19 @@ export class TerminalView extends ItemView {
     terminal.onData((data: string) => { pty.write(data); });
 
     const timers: ReturnType<typeof setTimeout>[] = [];
-
     const defaultName = preset ? preset.name : `Terminal ${this.tabCounter}`;
-    return { id, name: defaultName, userRenamed: false, terminal, fitAddon, pty, writer, el: termEl, timers };
+
+    return {
+      id,
+      name: defaultName,
+      userRenamed: false,
+      terminal,
+      fitAddon,
+      pty,
+      writer,
+      el: termEl,
+      timers,
+    };
   }
 
   /** Start PTY + fit terminal. Called after el is attached to visible DOM. */
@@ -371,168 +543,151 @@ export class TerminalView extends ItemView {
     tab.fitAddon.fit();
     tab.pty.resize(tab.terminal.cols, tab.terminal.rows);
     tab.terminal.focus();
+    this.scheduleFitAll();
+
+    if (!preset?.command) {
+      tab.timers.push(setTimeout(() => {
+        if (this.getTab(tab.id) !== tab || !tab.pty.isRunning) return;
+        if (this.shouldKickWindowsPrompt(tab)) {
+          tab.pty.write("\n");
+        }
+      }, 250));
+    }
+
     if (preset?.command) {
-      tab.timers.push(setTimeout(() => { tab.pty.write(preset!.command + "\n"); }, 400));
+      tab.timers.push(setTimeout(() => {
+        tab.pty.write(`${preset.command}\n`);
+      }, 400));
     }
   }
-
-  private pendingPreset: Preset | null = null;
 
   addTab(preset: Preset | null = null): void {
     this.tabCounter++;
     const id = `tab-${Date.now()}-${this.tabCounter}`;
     const tab = this.createTerminalInstance(id, preset);
     this.tabs.push(tab);
-    this.pendingPreset = preset;
 
-    // Add tab button to tab bar
     this.renderTabButton(tab);
-
-    // Show in main pane (attaches el to DOM first)
     this.showTabInMain(id);
-
-    // NOW open terminal + start PTY (element is in visible DOM)
-    this.activateTerminal(tab, this.pendingPreset);
-    this.pendingPreset = null;
+    this.activateTerminal(tab, preset);
   }
 
-  /** Show a tab's terminal in the main pane */
   private showTabInMain(tabId: string): void {
-    const tab = this.tabs.find(t => t.id === tabId);
+    const tab = this.getTab(tabId);
     if (!tab) return;
-
-    // Detach from wherever it currently is
-    tab.el.detach();
-
-    // Detach previous content (don't destroy — preserves xterm canvas)
-    while (this.mainPaneEl!.firstChild) {
-      (this.mainPaneEl!.firstChild as HTMLElement).detach();
+    if (this.activeTabId === tabId && tab.el.parentElement === this.mainPaneEl) {
+      tab.terminal.focus();
+      return;
     }
+
+    tab.el.detach();
+    this.clearMainPane();
     this.mainPaneEl!.appendChild(tab.el);
     tab.el.style.display = "";
 
     this.activeTabId = tabId;
     this.updateTabHighlight();
+    tab.terminal.focus();
+    this.scheduleFitAll();
   }
 
-  /** Split a tab out of the tab bar into a pinned pane below */
   private splitOutTab(tabId: string): void {
-    const tabIdx = this.tabs.findIndex(t => t.id === tabId);
-    if (tabIdx === -1) return;
-    const tab = this.tabs[tabIdx];
+    const tab = this.getTab(tabId);
+    if (!tab || this.isTabSplit(tabId)) return;
 
-    // Remove tab button from tab bar
-    this.tabBarEl!.querySelector(`[data-tab-id="${tabId}"]`)?.remove();
+    this.removeTabButton(tabId);
 
-    // If this was the active tab in main pane, detach it
     if (this.activeTabId === tabId) {
       tab.el.detach();
-      while (this.mainPaneEl!.firstChild) (this.mainPaneEl!.firstChild as HTMLElement).detach();
+      this.clearMainPane();
       this.activeTabId = null;
     }
 
-    // Add divider if splits exist
     if (this.splits.length > 0) {
       this.splitsWrapperEl!.createDiv({ cls: "ai-terminal-divider" });
     }
 
-    // Create split pane with header
     const splitEl = this.splitsWrapperEl!.createDiv({ cls: "ai-terminal-split-pane" });
     const header = splitEl.createDiv({ cls: "ai-terminal-split-header" });
     const leftGroup = header.createDiv({ cls: "ai-terminal-split-left" });
     const splitName = leftGroup.createSpan({ cls: "ai-terminal-split-name", text: tab.name });
-    splitName.addEventListener("contextmenu", (e) => { e.preventDefault(); this.renameTab(tab.id); });
-    const restoreBtn = leftGroup.createSpan({ cls: "ai-terminal-split-restore", text: "↑" });
-    restoreBtn.addEventListener("click", () => this.restoreSplitToMain(tab.id));
-    const rightGroup = header.createDiv({ cls: "ai-terminal-split-left" });
-    const splitCopyBtn = rightGroup.createSpan({ cls: "ai-terminal-split-copy", text: "📄" });
-    splitCopyBtn.addEventListener("click", () => this.copyNotePath());
-    const closeBtn = rightGroup.createSpan({ cls: "ai-terminal-split-close", text: "×" });
-    closeBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      this.closeSplit(tab.id);
+    splitName.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      this.renameTab(tab.id);
     });
 
-    // Terminal area
+    const restoreBtn = leftGroup.createSpan({ cls: "ai-terminal-split-restore", text: "↑" });
+    this.bindAction(restoreBtn, () => this.restoreSplitToMain(tab.id));
+
+    const rightGroup = header.createDiv({ cls: "ai-terminal-split-left" });
+    const splitCopyBtn = rightGroup.createSpan({ cls: "ai-terminal-split-copy", text: "📄" });
+    this.bindAction(splitCopyBtn, () => this.copyNotePath());
+
+    const closeBtn = rightGroup.createSpan({ cls: "ai-terminal-split-close", text: "×" });
+    this.bindAction(closeBtn, () => this.closeSplit(tab.id));
+
     const termArea = splitEl.createDiv({ cls: "ai-terminal-split-term" });
     tab.el.style.display = "";
     termArea.appendChild(tab.el);
 
-    const split: SplitPane = { id: `split-${Date.now()}`, tabId: tab.id, el: splitEl, headerEl: header };
-    this.splits.push(split);
+    this.splits.push({ id: `split-${Date.now()}`, tabId: tab.id, el: splitEl, headerEl: header });
 
-    // Show next tab in main pane
-    if (this.activeTabId === null && this.tabs.length > 0) {
-      // Find the first tab that's not in a split
-      const nextTab = this.tabs.find(t => !this.splits.some(s => s.tabId === t.id));
+    if (this.activeTabId === null) {
+      const nextTab = this.getNextMainTab(tab.id);
       if (nextTab) this.showTabInMain(nextTab.id);
     }
 
-    setTimeout(() => {
-      tab.fitAddon.fit();
-      tab.pty.resize(tab.terminal.cols, tab.terminal.rows);
-    }, 100);
-
-    // Show resizer and splits wrapper
-    if (this._resizerEl) this._resizerEl.style.display = "";
-    this.splitsWrapperEl!.style.display = "";
+    this.setSplitsVisible(true);
+    this.scheduleFitAll();
   }
 
   private closeSplit(tabId: string): void {
-    const splitIdx = this.splits.findIndex(s => s.tabId === tabId);
+    const splitIdx = this.splits.findIndex((split) => split.tabId === tabId);
     if (splitIdx === -1) return;
+
     const split = this.splits[splitIdx];
-    const tab = this.tabs.find(t => t.id === tabId);
+    const tab = this.getTab(tabId);
     if (!tab) return;
 
-    // Kill the terminal
-    for (const t of tab.timers) clearTimeout(t);
-    tab.pty.kill();
-    tab.writer.dispose();
-    tab.terminal.dispose();
-    tab.el.remove();
-
-    // Remove divider (before this split)
-    const dividers = Array.from(this.splitsWrapperEl!.querySelectorAll(".ai-terminal-divider"));
-    // Remove the divider adjacent to this split
-    if (dividers.length > 0) {
-      dividers[Math.min(splitIdx, dividers.length - 1)].remove();
+    if (this.activeTabId === tabId) {
+      this.activeTabId = null;
+      this.clearMainPane();
     }
 
+    this.removeSplitDivider(splitIdx);
     split.el.remove();
     this.splits.splice(splitIdx, 1);
-    this.tabs.splice(this.tabs.indexOf(tab), 1);
+    this.tabs = this.tabs.filter((candidate) => candidate.id !== tab.id);
 
-    // Hide resizer + reset main pane to full size when no splits left
     if (this.splits.length === 0) {
-      if (this._resizerEl) this._resizerEl.style.display = "none";
-      this.mainPaneEl!.style.flex = "";
-      this.splitsWrapperEl!.style.flex = "";
-      this.splitsWrapperEl!.style.display = "none";
-      setTimeout(() => this.fitAll(), 50);
+      this.setSplitsVisible(false);
     }
+
+    this.disposeTab(tab);
+    this.updateTabHighlight();
+    this.scheduleFitAll();
   }
 
   private renderTabButton(tab: TabInstance): void {
-    const btn = this.tabBarEl!.createDiv({ cls: "ai-terminal-tab-item", attr: { "data-tab-id": tab.id, draggable: "true" } });
+    const btn = this.tabBarEl!.createDiv({
+      cls: "ai-terminal-tab-item",
+      attr: { "data-tab-id": tab.id, draggable: "true" },
+    });
+
     btn.createSpan({ cls: "ai-terminal-tab-label", text: tab.name });
+
     const renameBtn = btn.createSpan({ cls: "ai-terminal-tab-rename", text: "✎" });
-    renameBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      this.renameTab(tab.id);
-    });
+    this.bindAction(renameBtn, () => this.renameTab(tab.id));
+
     const closeBtn = btn.createSpan({ cls: "ai-terminal-tab-close", text: "×" });
-    closeBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const idx = this.tabs.indexOf(tab);
-      this.closeTab(idx);
-    });
+    this.bindAction(closeBtn, () => this.closeTab(tab.id));
+
     btn.addEventListener("click", () => this.showTabInMain(tab.id));
     btn.addEventListener("dragstart", (e: DragEvent) => {
       e.dataTransfer?.setData("text/plain", tab.id);
-      e.dataTransfer!.effectAllowed = "move";
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
     });
-    // Insert tab before the "+" button: [Tab1] [Tab2] [+] ... [📄]
+
     const addEl = this.tabBarEl!.querySelector(".ai-terminal-tab-add");
     if (addEl) {
       this.tabBarEl!.insertBefore(btn, addEl);
@@ -541,74 +696,57 @@ export class TerminalView extends ItemView {
     }
   }
 
-  private closeTab(idx: number): void {
-    if (idx === -1) return;
-    const tab = this.tabs[idx];
-    const wasActive = this.activeTabId === tab.id;
-    const isInSplit = this.splits.some(s => s.tabId === tab.id);
+  private closeTab(tabId: string): void {
+    const tab = this.getTab(tabId);
+    if (!tab) return;
 
-    // If tab is in a split pane, delegate to closeSplit
-    if (isInSplit) {
+    if (this.isTabSplit(tab.id)) {
       this.closeSplit(tab.id);
       return;
     }
 
-    // Tab is in main pane
-    for (const t of tab.timers) clearTimeout(t);
-    tab.pty.kill();
-    tab.writer.dispose();
-    tab.terminal.dispose();
-    tab.el.remove();
-    this.tabBarEl?.querySelector(`[data-tab-id="${tab.id}"]`)?.remove();
-    this.tabs.splice(idx, 1);
+    const wasActive = this.activeTabId === tab.id;
+    this.removeTabButton(tab.id);
+    this.tabs = this.tabs.filter((candidate) => candidate.id !== tab.id);
 
     if (wasActive) {
       this.activeTabId = null;
-      while (this.mainPaneEl!.firstChild) (this.mainPaneEl!.firstChild as HTMLElement).detach();
+      this.clearMainPane();
 
-      // Find next non-split tab
-      const next = this.tabs.find(t => !this.splits.some(s => s.tabId === t.id));
+      const next = this.getNextMainTab();
       if (next) {
         this.showTabInMain(next.id);
       } else if (this.splits.length > 0) {
-        // Last main-pane tab closed but splits exist — restore first split back to main
         this.restoreSplitToMain(this.splits[0].tabId);
       }
     }
+
+    this.disposeTab(tab);
+    this.updateTabHighlight();
+    this.scheduleFitAll();
   }
 
-  /** Restore a split pane's terminal back to the main tab bar */
   private restoreSplitToMain(tabId: string): void {
-    const splitIdx = this.splits.findIndex(s => s.tabId === tabId);
+    const splitIdx = this.splits.findIndex((split) => split.tabId === tabId);
     if (splitIdx === -1) return;
+
     const split = this.splits[splitIdx];
-    const tab = this.tabs.find(t => t.id === tabId);
+    const tab = this.getTab(tabId);
     if (!tab) return;
 
-    // Remove divider adjacent to this split
-    const dividers = Array.from(this.splitsWrapperEl!.querySelectorAll(".ai-terminal-divider"));
-    if (dividers.length > 0) dividers[Math.min(splitIdx, dividers.length - 1)].remove();
-
-    // Detach terminal element before removing split pane
+    this.removeSplitDivider(splitIdx);
     tab.el.detach();
     split.el.remove();
     this.splits.splice(splitIdx, 1);
 
-    // Add tab button back to tab bar
     this.renderTabButton(tab);
-
-    // Show in main pane
     this.showTabInMain(tab.id);
 
-    // Hide resizer + reset layout if no more splits
     if (this.splits.length === 0) {
-      if (this._resizerEl) this._resizerEl.style.display = "none";
-      this.mainPaneEl!.style.flex = "";
-      this.splitsWrapperEl!.style.flex = "";
-      this.splitsWrapperEl!.style.display = "none";
+      this.setSplitsVisible(false);
     }
 
-    setTimeout(() => this.fitAll(), 50);
+    this.scheduleFitAll();
   }
 
   private updateTabHighlight(): void {
@@ -617,19 +755,21 @@ export class TerminalView extends ItemView {
     });
   }
 
-  /** Prompt user to rename a tab — locks the name so OSC auto-title won't override */
   private renameTab(tabId: string): void {
-    const tab = this.tabs.find(t => t.id === tabId);
+    const tab = this.getTab(tabId);
     if (!tab) return;
+
     new RenameModal(this.app, tab.name, (newName) => {
-      if (!newName.trim() || newName.trim() === tab.name) return;
-      tab.name = newName.trim();
+      const trimmed = newName.trim();
+      if (!trimmed || trimmed === tab.name) return;
+
+      tab.name = trimmed;
       tab.userRenamed = true;
-      // Update tab bar label
+
       const tabBtn = this.tabBarEl?.querySelector(`[data-tab-id="${tabId}"] .ai-terminal-tab-label`);
       if (tabBtn) tabBtn.textContent = tab.name;
-      // Update split pane header
-      const split = this.splits.find(s => s.tabId === tabId);
+
+      const split = this.splits.find((pane) => pane.tabId === tabId);
       if (split) {
         const nameEl = split.headerEl.querySelector(".ai-terminal-split-name");
         if (nameEl) nameEl.textContent = tab.name;
@@ -638,28 +778,29 @@ export class TerminalView extends ItemView {
   }
 
   private fitting = false;
+
+  private fitTab(tab: TabInstance): void {
+    if (!tab.el.isConnected || tab.el.offsetParent === null) return;
+
+    const prevCols = tab.terminal.cols;
+    const prevRows = tab.terminal.rows;
+    tab.fitAddon.fit();
+
+    if (tab.terminal.cols !== prevCols || tab.terminal.rows !== prevRows) {
+      tab.pty.resize(tab.terminal.cols, tab.terminal.rows);
+    }
+  }
+
   private fitAll(): void {
     if (this.fitting) return;
     this.fitting = true;
     try {
-      // Only fit the active main-pane terminal
-      const active = this.tabs.find(t => t.id === this.activeTabId);
-      if (active) {
-        const prev = `${active.terminal.cols}x${active.terminal.rows}`;
-        active.fitAddon.fit();
-        const curr = `${active.terminal.cols}x${active.terminal.rows}`;
-        if (prev !== curr) active.pty.resize(active.terminal.cols, active.terminal.rows);
-      }
-      // Only fit split terminals that are actually visible
+      const active = this.getTab(this.activeTabId);
+      if (active) this.fitTab(active);
+
       for (const split of this.splits) {
-        if (split.el.offsetParent === null) continue; // hidden, skip
-        const t = this.tabs.find(tt => tt.id === split.tabId);
-        if (t) {
-          const prev = `${t.terminal.cols}x${t.terminal.rows}`;
-          t.fitAddon.fit();
-          const curr = `${t.terminal.cols}x${t.terminal.rows}`;
-          if (prev !== curr) t.pty.resize(t.terminal.cols, t.terminal.rows);
-        }
+        const tab = this.getTab(split.tabId);
+        if (tab) this.fitTab(tab);
       }
     } finally {
       this.fitting = false;
@@ -667,36 +808,56 @@ export class TerminalView extends ItemView {
   }
 
   writeOutput(text: string): void {
-    const tab = this.tabs.find(t => t.id === this.activeTabId)
-      ?? (this.splits.length > 0 ? this.tabs.find(t => t.id === this.splits[this.splits.length - 1].tabId) : null);
+    const tab = this.getTab(this.activeTabId)
+      ?? (this.splits.length > 0 ? this.getTab(this.splits[this.splits.length - 1].tabId) : null);
     tab?.writer.enqueue(text);
   }
 
   private copyNotePath(): void {
     const file = this.app.workspace.getActiveFile();
-    if (!file) { new Notice("No active note"); return; }
+    if (!file) {
+      new Notice("No active note");
+      return;
+    }
+
     const vaultPath = (this.app.vault.adapter as any).basePath as string;
-    const absPath = vaultPath + "/" + file.path;
+    const absPath = `${vaultPath}/${file.path}`;
     navigator.clipboard.writeText(absPath).then(() => {
       new Notice(`Copied: ${absPath}`, 3000);
+    }).catch(() => {
+      new Notice("Failed to copy note path");
     });
   }
+
   sendKeys(keys: string): void {
-    const tab = this.tabs.find(t => t.id === this.activeTabId)
-      ?? (this.splits.length > 0 ? this.tabs.find(t => t.id === this.splits[this.splits.length - 1].tabId) : null);
+    const tab = this.getTab(this.activeTabId)
+      ?? (this.splits.length > 0 ? this.getTab(this.splits[this.splits.length - 1].tabId) : null);
     tab?.pty.write(keys);
   }
 
   async onClose(): Promise<void> {
     for (const tab of this.tabs) {
-      for (const t of tab.timers) clearTimeout(t);
-      tab.pty.kill();
-      tab.writer.dispose();
-      tab.terminal.dispose();
+      this.disposeTab(tab);
     }
+
     this.tabs = [];
     this.splits = [];
-    if (this.keymapScopeActive) { this.app.keymap.popScope(this.keymapScope); this.keymapScopeActive = false; }
+    this.activeTabId = null;
+
+    if (this.keymapScopeActive) {
+      this.app.keymap.popScope(this.keymapScope);
+      this.keymapScopeActive = false;
+    }
+
+    if (this.fitTimer) {
+      clearTimeout(this.fitTimer);
+      this.fitTimer = null;
+    }
+    if (this.fitFrameId !== null) {
+      window.cancelAnimationFrame(this.fitFrameId);
+      this.fitFrameId = null;
+    }
+
     this.resizeObserver?.disconnect();
   }
 }
@@ -740,8 +901,10 @@ class RenameModal extends Modal {
     const okBtn = btnRow.createEl("button", { text: "Rename", cls: "mod-cta" });
     okBtn.addEventListener("click", submit);
 
-    // Focus and select current name
-    setTimeout(() => { inputEl.focus(); inputEl.select(); }, 50);
+    setTimeout(() => {
+      inputEl.focus();
+      inputEl.select();
+    }, 50);
   }
 
   onClose(): void {
