@@ -189,6 +189,25 @@
   color: var(--text-normal);
 }
 
+.ai-terminal-split-restore {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: bold;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ai-terminal-split-restore:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
 .ai-terminal-tab-add {
   display: flex;
   align-items: center;
@@ -250,6 +269,12 @@
   font-size: 11px;
   color: var(--text-muted);
   font-weight: 500;
+}
+
+.ai-terminal-split-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .ai-terminal-split-close {

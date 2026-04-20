@@ -3,7 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { PtyProcess } from "./PtyProcess";
-import type { AITerminalSettings, Preset } from "./settings";
+import type { AITerminalSettings, Preset } from "./Settings";
 import * as path from "path";
 
 export const VIEW_TYPE_TERMINAL = "ai-terminal-view";
@@ -15,6 +15,7 @@ interface TabInstance {
   terminal: Terminal;
   fitAddon: FitAddon;
   pty: PtyProcess;
+  writer: TerminalWritePump;
   el: HTMLElement;
   timers: ReturnType<typeof setTimeout>[];
 }
@@ -24,6 +25,95 @@ interface SplitPane {
   tabId: string;
   el: HTMLElement;
   headerEl: HTMLElement;
+}
+
+interface TerminalWritePump {
+  enqueue(data: string): void;
+  dispose(): void;
+}
+
+const WRITE_BATCH_CHARS = 32 * 1024;
+const WRITE_IMMEDIATE_THRESHOLD = 128 * 1024;
+
+function createTerminalWritePump(terminal: Terminal): TerminalWritePump {
+  const chunks: string[] = [];
+  let queuedChars = 0;
+  let frameId: number | null = null;
+  let timeoutId: number | null = null;
+  let writing = false;
+  let disposed = false;
+
+  const clearPending = () => {
+    if (frameId !== null) {
+      window.cancelAnimationFrame(frameId);
+      frameId = null;
+    }
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+  };
+
+  const drain = () => {
+    clearPending();
+    if (disposed || writing || queuedChars === 0) return;
+
+    const batch: string[] = [];
+    let batchChars = 0;
+    while (chunks.length > 0 && batchChars < WRITE_BATCH_CHARS) {
+      const chunk = chunks.shift();
+      if (!chunk) continue;
+      batch.push(chunk);
+      batchChars += chunk.length;
+    }
+
+    if (batch.length === 0) return;
+
+    queuedChars = Math.max(0, queuedChars - batchChars);
+    writing = true;
+    terminal.write(batch.join(""), () => {
+      writing = false;
+      if (!disposed && queuedChars > 0) {
+        schedule();
+      }
+    });
+  };
+
+  const schedule = () => {
+    if (disposed || writing || queuedChars === 0 || frameId !== null || timeoutId !== null) return;
+    if (document.visibilityState === "visible") {
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        drain();
+      });
+      return;
+    }
+    timeoutId = window.setTimeout(() => {
+      timeoutId = null;
+      drain();
+    }, 16);
+  };
+
+  return {
+    enqueue(data: string) {
+      if (disposed || data.length === 0) return;
+      chunks.push(data);
+      queuedChars += data.length;
+
+      if (queuedChars >= WRITE_IMMEDIATE_THRESHOLD && !writing) {
+        drain();
+        return;
+      }
+
+      schedule();
+    },
+    dispose() {
+      disposed = true;
+      chunks.length = 0;
+      queuedChars = 0;
+      clearPending();
+    },
+  };
 }
 
 export class TerminalView extends ItemView {
@@ -263,27 +353,16 @@ export class TerminalView extends ItemView {
     const pty = new PtyProcess(shell, cwd, this.pluginDir, {
       OBSIDIAN_CONTEXT_PIPE: pipePath, OBSIDIAN_VAULT_PATH: vaultPath,
     });
-    // Batch PTY output via rAF to prevent rendering flood
-    let writeBuf = "";
-    let writeScheduled = false;
-    const flushWrite = () => {
-      writeScheduled = false;
-      if (writeBuf) { terminal.write(writeBuf); writeBuf = ""; }
-    };
-    pty.on("data", (data: string) => {
-      writeBuf += data;
-      // Flush immediately if buffer exceeds 64KB to prevent jank
-      if (writeBuf.length > 65536) { flushWrite(); return; }
-      if (!writeScheduled) { writeScheduled = true; requestAnimationFrame(flushWrite); }
-    });
-    pty.on("exit", () => { terminal.write("\r\n\x1b[90m[Process exited]\x1b[0m\r\n"); });
-    pty.on("error", (err: Error) => { terminal.write(`\r\n\x1b[31m[Error: ${err.message}]\x1b[0m\r\n`); });
+    const writer = createTerminalWritePump(terminal);
+    pty.on("data", (data: string) => { writer.enqueue(data); });
+    pty.on("exit", () => { writer.enqueue("\r\n\x1b[90m[Process exited]\x1b[0m\r\n"); });
+    pty.on("error", (err: Error) => { writer.enqueue(`\r\n\x1b[31m[Error: ${err.message}]\x1b[0m\r\n`); });
     terminal.onData((data: string) => { pty.write(data); });
 
     const timers: ReturnType<typeof setTimeout>[] = [];
 
     const defaultName = preset ? preset.name : `Terminal ${this.tabCounter}`;
-    return { id, name: defaultName, userRenamed: false, terminal, fitAddon, pty, el: termEl, timers };
+    return { id, name: defaultName, userRenamed: false, terminal, fitAddon, pty, writer, el: termEl, timers };
   }
 
   /** Start PTY + fit terminal. Called after el is attached to visible DOM. */
@@ -360,13 +439,17 @@ export class TerminalView extends ItemView {
     // Create split pane with header
     const splitEl = this.splitsWrapperEl!.createDiv({ cls: "ai-terminal-split-pane" });
     const header = splitEl.createDiv({ cls: "ai-terminal-split-header" });
-    const splitName = header.createSpan({ cls: "ai-terminal-split-name", text: tab.name });
+    const leftGroup = header.createDiv({ cls: "ai-terminal-split-left" });
+    const splitName = leftGroup.createSpan({ cls: "ai-terminal-split-name", text: tab.name });
     splitName.addEventListener("contextmenu", (e) => { e.preventDefault(); this.renameTab(tab.id); });
-    const splitCopyBtn = header.createSpan({ cls: "ai-terminal-split-copy", text: "📄" });
+    const restoreBtn = leftGroup.createSpan({ cls: "ai-terminal-split-restore", text: "↑" });
+    restoreBtn.addEventListener("click", () => this.restoreSplitToMain(tab.id));
+    const rightGroup = header.createDiv({ cls: "ai-terminal-split-left" });
+    const splitCopyBtn = rightGroup.createSpan({ cls: "ai-terminal-split-copy", text: "📄" });
     splitCopyBtn.addEventListener("click", () => this.copyNotePath());
-    const closeBtn = header.createSpan({ cls: "ai-terminal-split-close", text: "×" });
-    closeBtn.addEventListener("click", () => {
-      if (!confirm(`Close "${tab.name}"?`)) return;
+    const closeBtn = rightGroup.createSpan({ cls: "ai-terminal-split-close", text: "×" });
+    closeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
       this.closeSplit(tab.id);
     });
 
@@ -405,6 +488,7 @@ export class TerminalView extends ItemView {
     // Kill the terminal
     for (const t of tab.timers) clearTimeout(t);
     tab.pty.kill();
+    tab.writer.dispose();
     tab.terminal.dispose();
     tab.el.remove();
 
@@ -440,7 +524,6 @@ export class TerminalView extends ItemView {
     const closeBtn = btn.createSpan({ cls: "ai-terminal-tab-close", text: "×" });
     closeBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (!confirm(`Close "${tab.name}"?`)) return;
       const idx = this.tabs.indexOf(tab);
       this.closeTab(idx);
     });
@@ -464,28 +547,16 @@ export class TerminalView extends ItemView {
     const wasActive = this.activeTabId === tab.id;
     const isInSplit = this.splits.some(s => s.tabId === tab.id);
 
-    // If tab is in a split pane, close that split
+    // If tab is in a split pane, delegate to closeSplit
     if (isInSplit) {
-      const splitIdx = this.splits.findIndex(s => s.tabId === tab.id);
-      if (splitIdx !== -1) {
-        const split = this.splits[splitIdx];
-        for (const t of tab.timers) clearTimeout(t);
-        tab.pty.kill();
-        tab.terminal.dispose();
-        tab.el.remove();
-        const dividers = Array.from(this.splitsWrapperEl!.querySelectorAll(".ai-terminal-divider"));
-        if (dividers.length > 0) dividers[Math.min(splitIdx, dividers.length - 1)].remove();
-        split.el.remove();
-        this.splits.splice(splitIdx, 1);
-        this.tabs.splice(idx, 1);
-        if (this.splits.length === 0 && this._resizerEl) this._resizerEl.style.display = "none";
-        return;
-      }
+      this.closeSplit(tab.id);
+      return;
     }
 
     // Tab is in main pane
     for (const t of tab.timers) clearTimeout(t);
     tab.pty.kill();
+    tab.writer.dispose();
     tab.terminal.dispose();
     tab.el.remove();
     this.tabBarEl?.querySelector(`[data-tab-id="${tab.id}"]`)?.remove();
@@ -500,24 +571,28 @@ export class TerminalView extends ItemView {
       if (next) {
         this.showTabInMain(next.id);
       } else if (this.splits.length > 0) {
-        // Last main-pane tab closed but splits exist — promote first split back to main
-        this.promoteSplitToMain();
+        // Last main-pane tab closed but splits exist — restore first split back to main
+        this.restoreSplitToMain(this.splits[0].tabId);
       }
     }
   }
 
-  /** Promote the first split pane's terminal back to the main pane */
-  private promoteSplitToMain(): void {
-    if (this.splits.length === 0) return;
-    const split = this.splits[0];
-    const tab = this.tabs.find(t => t.id === split.tabId);
+  /** Restore a split pane's terminal back to the main tab bar */
+  private restoreSplitToMain(tabId: string): void {
+    const splitIdx = this.splits.findIndex(s => s.tabId === tabId);
+    if (splitIdx === -1) return;
+    const split = this.splits[splitIdx];
+    const tab = this.tabs.find(t => t.id === tabId);
     if (!tab) return;
 
-    // Remove split pane DOM
+    // Remove divider adjacent to this split
     const dividers = Array.from(this.splitsWrapperEl!.querySelectorAll(".ai-terminal-divider"));
-    if (dividers.length > 0) dividers[0].remove();
+    if (dividers.length > 0) dividers[Math.min(splitIdx, dividers.length - 1)].remove();
+
+    // Detach terminal element before removing split pane
+    tab.el.detach();
     split.el.remove();
-    this.splits.splice(0, 1);
+    this.splits.splice(splitIdx, 1);
 
     // Add tab button back to tab bar
     this.renderTabButton(tab);
@@ -525,10 +600,15 @@ export class TerminalView extends ItemView {
     // Show in main pane
     this.showTabInMain(tab.id);
 
-    // Hide resizer if no more splits
-    if (this.splits.length === 0 && this._resizerEl) {
-      this._resizerEl.style.display = "none";
+    // Hide resizer + reset layout if no more splits
+    if (this.splits.length === 0) {
+      if (this._resizerEl) this._resizerEl.style.display = "none";
+      this.mainPaneEl!.style.flex = "";
+      this.splitsWrapperEl!.style.flex = "";
+      this.splitsWrapperEl!.style.display = "none";
     }
+
+    setTimeout(() => this.fitAll(), 50);
   }
 
   private updateTabHighlight(): void {
@@ -589,7 +669,7 @@ export class TerminalView extends ItemView {
   writeOutput(text: string): void {
     const tab = this.tabs.find(t => t.id === this.activeTabId)
       ?? (this.splits.length > 0 ? this.tabs.find(t => t.id === this.splits[this.splits.length - 1].tabId) : null);
-    tab?.terminal.write(text);
+    tab?.writer.enqueue(text);
   }
 
   private copyNotePath(): void {
@@ -611,6 +691,7 @@ export class TerminalView extends ItemView {
     for (const tab of this.tabs) {
       for (const t of tab.timers) clearTimeout(t);
       tab.pty.kill();
+      tab.writer.dispose();
       tab.terminal.dispose();
     }
     this.tabs = [];

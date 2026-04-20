@@ -16,6 +16,7 @@ pub fn relay_output(output_client: HANDLE) -> thread::JoinHandle<()> {
         let h = HANDLE(raw as *mut _);
         let mut buf = [0u8; 65536];
         let stdout = io::stdout();
+        let mut out = stdout.lock();
         loop {
             let mut bytes_read: u32 = 0;
             let ok = unsafe {
@@ -24,12 +25,11 @@ pub fn relay_output(output_client: HANDLE) -> thread::JoinHandle<()> {
             if ok.is_err() || bytes_read == 0 {
                 break;
             }
-            let mut out = stdout.lock();
             if out.write_all(&buf[..bytes_read as usize]).is_err() {
                 break;
             }
-            let _ = out.flush();
         }
+        let _ = out.flush();
     })
 }
 

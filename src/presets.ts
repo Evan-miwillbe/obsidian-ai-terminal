@@ -1,4 +1,4 @@
-import type { Preset } from "./settings";
+import type { Preset } from "./Settings";
 
 export const DEFAULT_PRESETS: Preset[] = [
   {

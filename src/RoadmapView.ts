@@ -1,5 +1,5 @@
 import { ItemView, WorkspaceLeaf, App, TFile, Notice } from "obsidian";
-import type { AITerminalSettings } from "./settings";
+import type { AITerminalSettings } from "./Settings";
 
 export const VIEW_TYPE_ROADMAP = "roadmap-view";
 

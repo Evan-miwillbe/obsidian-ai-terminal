@@ -2,8 +2,8 @@ import { Plugin, Notice, TFile, debounce } from "obsidian";
 import { TerminalView, VIEW_TYPE_TERMINAL } from "./TerminalView";
 import { SchemaMapView, VIEW_TYPE_SCHEMA_MAP } from "./SchemaMapView";
 import { RoadmapView, VIEW_TYPE_ROADMAP } from "./RoadmapView";
-import { AITerminalSettings, AITerminalSettingTab, DEFAULT_SETTINGS } from "./settings";
-import type { Preset } from "./settings";
+import { AITerminalSettings, AITerminalSettingTab, DEFAULT_SETTINGS } from "./Settings";
+import type { Preset } from "./Settings";
 import { dumpVaultIndex } from "./vaultIndexer";
 import { Scheduler } from "./scheduler";
 import { RuleSync } from "./ruleSync";
@@ -354,10 +354,18 @@ export default class AITerminalPlugin extends Plugin {
     }
     if (!leaf) return;
 
+    if (isNewLeaf) {
+      (leaf as any)._aiTerminalPreset = preset;
+    }
+
     await leaf.setViewState({
       type: VIEW_TYPE_TERMINAL,
       active: true,
     });
+
+    if (isNewLeaf) {
+      delete (leaf as any)._aiTerminalPreset;
+    }
 
     this.app.workspace.revealLeaf(leaf);
 
@@ -503,9 +511,11 @@ export default class AITerminalPlugin extends Plugin {
     );
 
     // 初始构建
-    this.app.metadataCache.on("resolved", () => {
-      this.watchdog?.rebuild();
-    });
+    this.registerEvent(
+      this.app.metadataCache.on("resolved", () => {
+        this.watchdog?.rebuild();
+      }),
+    );
 
     // ACP Layer
     this.acpLayer = new AcpLayer(this.app, this.watchdog);
@@ -535,9 +545,11 @@ export default class AITerminalPlugin extends Plugin {
     );
 
     // 缓存完全加载后首次导出
-    this.app.metadataCache.on("resolved", () => {
-      dumpVaultIndex(this.app, this.settings.vaultIndexPath);
-    });
+    this.registerEvent(
+      this.app.metadataCache.on("resolved", () => {
+        dumpVaultIndex(this.app, this.settings.vaultIndexPath);
+      }),
+    );
 
     // 文件变更时防抖导出
     this.registerEvent(

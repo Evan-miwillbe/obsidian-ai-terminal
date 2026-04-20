@@ -11,7 +11,7 @@ import {
   getToolTargetPath,
   generateEntryId,
 } from "./deployRegistry";
-import type { AITerminalSettings } from "./settings";
+import type { AITerminalSettings } from "./Settings";
 import * as path from "path";
 
 export const VIEW_TYPE_SCHEMA_MAP = "schema-map-view";
