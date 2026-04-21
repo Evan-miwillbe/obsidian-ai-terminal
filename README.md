@@ -110,6 +110,13 @@ npm install
 npm run build
 ```
 
+## 下载
+
+- **最新发布版**：本仓库 `releases/` 目录下有对应版本的完整发布文件
+- **GitHub Releases**：也可从 GitHub Releases 页面下载
+
+每个版本包含：`main.js`、`manifest.json`、`styles.css`、`conpty-bridge.exe`（Windows）
+
 ## 使用方法
 
 - **命令面板**：`AI Terminal: Open terminal`

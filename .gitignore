@@ -1,6 +1,6 @@
 node_modules/
-main.js
 conpty-bridge/target/
 docs/obsidian_symlink
-.superpowers/
-*.exe
+*.zip
+*.tar.gz
+*.log
