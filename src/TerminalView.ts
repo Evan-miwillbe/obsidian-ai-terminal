@@ -7,6 +7,7 @@ import {
   getTerminalCloseConfirmation,
   shouldCloseTerminalTab,
 } from "./terminalCloseConfirmation";
+import { withInteractiveShellProfile } from "./terminalShellProfile";
 import {
   createTerminalWritePump,
   type TerminalWritePump,
@@ -411,7 +412,7 @@ export class TerminalView extends ItemView {
 
     const vaultPath = (this.app.vault.adapter as any).basePath as string;
     const cwd = this.settings.defaultCwd || vaultPath;
-    const shell = this.settings.defaultShell || "/bin/zsh";
+    const shell = withInteractiveShellProfile(this.settings.defaultShell || "/bin/zsh");
     const pipePath = process.platform === "win32" ? "\\\\.\\pipe\\obsidian-ai-terminal" : "/tmp/obsidian-ai-terminal.sock";
 
     const pty = new PtyProcess(shell, cwd, this.pluginDir, {
