@@ -4,22 +4,20 @@ import { FitAddon } from "@xterm/addon-fit";
 import { PtyProcess } from "./PtyProcess";
 import type { AITerminalSettings, Preset } from "./settings";
 import {
-  getWheelViewportSyncDecision,
-  getViewportSyncDecision,
-  shouldSuppressBottomWheel,
-  type TerminalScrollSnapshot,
-} from "./terminalScrollState";
-import {
   getTerminalCloseConfirmation,
   shouldCloseTerminalTab,
 } from "./terminalCloseConfirmation";
+import {
+  createTerminalWritePump,
+  type TerminalWritePump,
+} from "./terminalWritePump";
+import {
+  installTerminalViewportGuards,
+  repairTerminalBottomViewport,
+  syncTerminalViewportScrollArea,
+} from "./terminalViewport";
 
 export const VIEW_TYPE_TERMINAL = "ai-terminal-view";
-
-interface TerminalWritePump {
-  enqueue(data: string): void;
-  dispose(): void;
-}
 
 interface TabInstance {
   id: string;
@@ -39,116 +37,6 @@ interface SplitPane {
   tabId: string;
   el: HTMLElement;
   headerEl: HTMLElement;
-}
-
-const WRITE_BATCH_CHARS = 32 * 1024;
-const WRITE_IMMEDIATE_THRESHOLD = 128 * 1024;
-
-function createTerminalWritePump(terminal: Terminal): TerminalWritePump {
-  const chunks: string[] = [];
-  let readIndex = 0;
-  let queuedChars = 0;
-  let frameId: number | null = null;
-  let timeoutId: number | null = null;
-  let writing = false;
-  let disposed = false;
-
-  const clearPending = () => {
-    if (frameId !== null) {
-      window.cancelAnimationFrame(frameId);
-      frameId = null;
-    }
-    if (timeoutId !== null) {
-      window.clearTimeout(timeoutId);
-      timeoutId = null;
-    }
-  };
-
-  const compactQueue = () => {
-    if (readIndex === 0) return;
-    if (readIndex >= chunks.length) {
-      chunks.length = 0;
-      readIndex = 0;
-      return;
-    }
-    if (readIndex > 64 && readIndex * 2 >= chunks.length) {
-      chunks.splice(0, readIndex);
-      readIndex = 0;
-    }
-  };
-
-  const schedule = () => {
-    if (disposed || writing || queuedChars === 0 || frameId !== null || timeoutId !== null) return;
-    const flush = () => {
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId);
-        frameId = null;
-      }
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId);
-        timeoutId = null;
-      }
-      drain();
-    };
-
-    frameId = window.requestAnimationFrame(() => {
-      flush();
-    });
-    timeoutId = window.setTimeout(() => {
-      flush();
-    }, 24);
-  };
-
-  const drain = () => {
-    clearPending();
-    if (disposed || writing || queuedChars === 0) return;
-
-    const batch: string[] = [];
-    let batchChars = 0;
-    while (readIndex < chunks.length && batchChars < WRITE_BATCH_CHARS) {
-      const chunk = chunks[readIndex++];
-      if (!chunk) continue;
-      batch.push(chunk);
-      batchChars += chunk.length;
-    }
-
-    if (batch.length === 0) {
-      compactQueue();
-      return;
-    }
-
-    compactQueue();
-    queuedChars = Math.max(0, queuedChars - batchChars);
-    writing = true;
-    terminal.write(batch.join(""), () => {
-      writing = false;
-      if (!disposed && queuedChars > 0) {
-        schedule();
-      }
-    });
-  };
-
-  return {
-    enqueue(data: string) {
-      if (disposed || data.length === 0) return;
-      chunks.push(data);
-      queuedChars += data.length;
-
-      if (queuedChars >= WRITE_IMMEDIATE_THRESHOLD && !writing) {
-        drain();
-        return;
-      }
-
-      schedule();
-    },
-    dispose() {
-      disposed = true;
-      chunks.length = 0;
-      readIndex = 0;
-      queuedChars = 0;
-      clearPending();
-    },
-  };
 }
 
 export class TerminalView extends ItemView {
@@ -436,73 +324,6 @@ export class TerminalView extends ItemView {
     });
   }
 
-  private getXtermViewport(tab: TabInstance): HTMLElement | null {
-    return tab.el.querySelector(".xterm-viewport") as HTMLElement | null;
-  }
-
-  private getScrollSnapshot(tab: TabInstance): TerminalScrollSnapshot | null {
-    const viewport = this.getXtermViewport(tab);
-    if (!viewport) return null;
-
-    const buffer = tab.terminal.buffer.active;
-    return {
-      viewportY: buffer.viewportY,
-      baseY: buffer.baseY,
-      scrollTop: viewport.scrollTop,
-      maxScrollTop: Math.max(0, viewport.scrollHeight - viewport.clientHeight),
-    };
-  }
-
-  private syncViewportScrollArea(tab: TabInstance): void {
-    const internalViewport = (tab.terminal as any)._core?.viewport ?? (tab.terminal as any).viewport;
-    internalViewport?.syncScrollArea?.(true);
-  }
-
-  private repairBottomViewport(tab: TabInstance): void {
-    const snapshot = this.getScrollSnapshot(tab);
-    if (!snapshot) return;
-
-    const decision = getViewportSyncDecision(snapshot);
-    if (decision.action !== "repair-to-bottom") return;
-
-    const viewport = this.getXtermViewport(tab);
-    if (viewport) viewport.scrollTop = decision.scrollTop;
-  }
-
-  private installViewportGuards(tab: TabInstance): void {
-    if (tab.viewportGuardsInstalled) return;
-
-    const viewport = this.getXtermViewport(tab);
-    if (!viewport) return;
-
-    tab.el.addEventListener("wheel", (e: WheelEvent) => {
-      if (e.ctrlKey) return;
-
-      const snapshot = this.getScrollSnapshot(tab);
-      if (!snapshot || e.deltaY <= 0) return;
-
-      const decision = getWheelViewportSyncDecision(snapshot, e.deltaY);
-      if (decision.action === "repair-to-bottom") {
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-        viewport.scrollTop = decision.scrollTop;
-        tab.terminal.scrollToBottom();
-        return;
-      }
-
-      if (shouldSuppressBottomWheel(snapshot, e.deltaY)) {
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-        viewport.scrollTop = snapshot.maxScrollTop;
-        tab.terminal.scrollToBottom();
-      }
-    }, { capture: true, passive: false });
-
-    tab.viewportGuardsInstalled = true;
-  }
-
   /** Create terminal infrastructure (PTY, xterm config) but do NOT open into DOM yet */
   private createTerminalInstance(id: string, preset: Preset | null): TabInstance {
     const colors = this.getThemeColors();
@@ -637,7 +458,7 @@ export class TerminalView extends ItemView {
       tab.terminal.open(tab.el);
     }
 
-    this.installViewportGuards(tab);
+    installTerminalViewportGuards(tab);
     tab.pty.start();
     this.fitTab(tab);
     tab.timers.push(setTimeout(() => {
@@ -904,7 +725,7 @@ export class TerminalView extends ItemView {
     const viewportY = activeBuffer.viewportY;
 
     tab.fitAddon.fit();
-    this.syncViewportScrollArea(tab);
+    syncTerminalViewportScrollArea(tab.terminal);
 
     if (tab.terminal.cols !== prevCols || tab.terminal.rows !== prevRows) {
       tab.pty.resize(tab.terminal.cols, tab.terminal.rows);
@@ -912,7 +733,7 @@ export class TerminalView extends ItemView {
 
     if (wasAtBottom) {
       tab.terminal.scrollToBottom();
-      this.repairBottomViewport(tab);
+      repairTerminalBottomViewport(tab.terminal, tab.el);
     } else {
       tab.terminal.scrollToLine(Math.min(viewportY, tab.terminal.buffer.active.baseY));
     }

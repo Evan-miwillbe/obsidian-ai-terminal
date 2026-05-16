@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 const entryPoints = [
   "tests/terminalScrollState.test.ts",
   "tests/terminalCloseConfirmation.test.ts",
+  "tests/terminalWritePump.test.ts",
 ];
 
 await mkdir(".tmp", { recursive: true });
