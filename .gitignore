@@ -1,4 +1,6 @@
 node_modules/
+.tmp/
+/main.js
 conpty-bridge/target/
 docs/obsidian_symlink
 *.zip

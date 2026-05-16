@@ -42,6 +42,8 @@ export class ContextPipeServer {
   private server: net.Server | null = null;
   private clients = new Set<net.Socket>();
   private unsubscribe: (() => void) | null = null;
+  private listenRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private listenRetryCount = 0;
   private acpLayer: AcpLayer | null = null;
   private app: App;
   private getTerminalView: (() => TerminalView | null) | null = null;
@@ -64,8 +66,16 @@ export class ContextPipeServer {
     return getPipePath();
   }
 
+  private clearListenRetry(): void {
+    if (this.listenRetryTimer) {
+      clearTimeout(this.listenRetryTimer);
+      this.listenRetryTimer = null;
+    }
+  }
+
   /** 服务器启动 */
   start(): void {
+    this.clearListenRetry();
     if (this.server) return;
 
     // Unix: 移除已有 socket 文件
@@ -73,7 +83,7 @@ export class ContextPipeServer {
       try { fs.unlinkSync(this.pipePath); } catch { /* ignore */ }
     }
 
-    this.server = net.createServer((socket) => {
+    const server = net.createServer((socket) => {
       this.clients.add(socket);
 
       let buffer = "";
@@ -113,26 +123,49 @@ export class ContextPipeServer {
       });
     });
 
-    this.server.listen(this.pipePath, () => {
+    this.server = server;
+
+    server.listen(this.pipePath, () => {
+      this.listenRetryCount = 0;
       // Named Pipe 服务器已启动
     });
 
-    this.server.on("error", (err) => {
+    server.on("error", (err) => {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "EADDRINUSE" && this.listenRetryCount < 20) {
+        this.listenRetryCount += 1;
+
+        if (this.server === server) {
+          this.server = null;
+        }
+
+        try { server.close(); } catch { /* ignore */ }
+
+        const delay = Math.min(1000, 100 + this.listenRetryCount * 100);
+        this.listenRetryTimer = setTimeout(() => this.start(), delay);
+        return;
+      }
+
       console.error("ContextPipeServer error:", err);
     });
 
     // watchdog 变更时通知已订阅的客户端
-    this.unsubscribe = this.watchdog.onIndexChange((index) => {
-      this.broadcastNotification("vault/changed", {
-        timestamp: index.timestamp,
-        activeNote: index.activeNote?.path ?? null,
-        recentCount: index.recentNotes.length,
+    if (!this.unsubscribe) {
+      this.unsubscribe = this.watchdog.onIndexChange((index) => {
+        this.broadcastNotification("vault/changed", {
+          timestamp: index.timestamp,
+          activeNote: index.activeNote?.path ?? null,
+          recentCount: index.recentNotes.length,
+        });
       });
-    });
+    }
   }
 
   /** 服务器停止 */
   stop(): void {
+    this.clearListenRetry();
+    this.listenRetryCount = 0;
+
     this.unsubscribe?.();
     this.unsubscribe = null;
 

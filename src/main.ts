@@ -1,9 +1,9 @@
-import { Plugin, Notice, TFile, debounce } from "obsidian";
+import { Plugin, Notice, TFile, WorkspaceLeaf, debounce } from "obsidian";
 import { TerminalView, VIEW_TYPE_TERMINAL } from "./TerminalView";
 import { SchemaMapView, VIEW_TYPE_SCHEMA_MAP } from "./SchemaMapView";
 import { RoadmapView, VIEW_TYPE_ROADMAP } from "./RoadmapView";
-import { AITerminalSettings, AITerminalSettingTab, DEFAULT_SETTINGS } from "./Settings";
-import type { Preset } from "./Settings";
+import { AITerminalSettings, AITerminalSettingTab, DEFAULT_SETTINGS } from "./settings";
+import type { Preset } from "./settings";
 import { dumpVaultIndex } from "./vaultIndexer";
 import { Scheduler } from "./scheduler";
 import { RuleSync } from "./ruleSync";
@@ -348,7 +348,7 @@ export default class AITerminalPlugin extends Plugin {
     const existingLeaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_TERMINAL);
     const isNewLeaf = existingLeaves.length === 0;
 
-    let leaf = existingLeaves[0];
+    let leaf: WorkspaceLeaf | null = existingLeaves[0] ?? null;
     if (!leaf) {
       leaf = this.app.workspace.getRightLeaf(false);
     }
@@ -499,8 +499,9 @@ export default class AITerminalPlugin extends Plugin {
     // 活动笔记变更追踪
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", (leaf) => {
-        const file = leaf?.view?.getState?.()?.file;
-        this.watchdog?.setActiveNote(file || null);
+        const state = leaf?.view?.getState?.() as { file?: unknown } | null | undefined;
+        const file = typeof state?.file === "string" ? state.file : null;
+        this.watchdog?.setActiveNote(file);
       }),
     );
 

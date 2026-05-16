@@ -2,8 +2,13 @@ import { ItemView, Modal, Notice, Scope, WorkspaceLeaf } from "obsidian";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { PtyProcess } from "./PtyProcess";
-import type { AITerminalSettings, Preset } from "./Settings";
+import type { AITerminalSettings, Preset } from "./settings";
 import type { IDecoration, IMarker } from "@xterm/xterm";
+import {
+  getViewportSyncDecision,
+  shouldSuppressBottomWheel,
+  type TerminalScrollSnapshot,
+} from "./terminalScrollState";
 
 export const VIEW_TYPE_TERMINAL = "ai-terminal-view";
 
@@ -26,6 +31,7 @@ interface TabInstance {
   cursorFrameId: number | null;
   cursorDecoration: IDecoration | null;
   cursorMarker: IMarker | null;
+  viewportGuardsInstalled: boolean;
 }
 
 interface SplitPane {
@@ -279,6 +285,10 @@ export class TerminalView extends ItemView {
       }
     });
 
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.scheduleFitAll(80)));
+    this.registerEvent(this.app.workspace.on("layout-change", () => this.scheduleFitAll(80)));
+    this.registerDomEvent(document, "visibilitychange", () => this.scheduleFitAll(80));
+
     this.addTab(this.preset);
   }
 
@@ -488,6 +498,73 @@ export class TerminalView extends ItemView {
     });
   }
 
+  private getXtermViewport(tab: TabInstance): HTMLElement | null {
+    return tab.el.querySelector(".xterm-viewport") as HTMLElement | null;
+  }
+
+  private getScrollSnapshot(tab: TabInstance): TerminalScrollSnapshot | null {
+    const viewport = this.getXtermViewport(tab);
+    if (!viewport) return null;
+
+    const buffer = tab.terminal.buffer.active;
+    return {
+      viewportY: buffer.viewportY,
+      baseY: buffer.baseY,
+      scrollTop: viewport.scrollTop,
+      maxScrollTop: Math.max(0, viewport.scrollHeight - viewport.clientHeight),
+    };
+  }
+
+  private syncViewportScrollArea(tab: TabInstance): void {
+    const internalViewport = (tab.terminal as any).viewport;
+    internalViewport?.syncScrollArea?.(true);
+  }
+
+  private repairBottomViewport(tab: TabInstance): void {
+    const snapshot = this.getScrollSnapshot(tab);
+    if (!snapshot) return;
+
+    const decision = getViewportSyncDecision(snapshot);
+    if (decision.action !== "repair-to-bottom") return;
+
+    const viewport = this.getXtermViewport(tab);
+    if (viewport) viewport.scrollTop = decision.scrollTop;
+  }
+
+  private installViewportGuards(tab: TabInstance): void {
+    if (tab.viewportGuardsInstalled) return;
+
+    const viewport = this.getXtermViewport(tab);
+    if (!viewport) return;
+
+    tab.el.addEventListener("wheel", (e: WheelEvent) => {
+      if (e.ctrlKey) return;
+
+      this.repairBottomViewport(tab);
+      const snapshot = this.getScrollSnapshot(tab);
+      if (!snapshot || !shouldSuppressBottomWheel(snapshot, e.deltaY)) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      viewport.scrollTop = snapshot.maxScrollTop;
+      tab.terminal.scrollToBottom();
+    }, { capture: true, passive: false });
+
+    viewport.addEventListener("scroll", (e: Event) => {
+      const snapshot = this.getScrollSnapshot(tab);
+      if (!snapshot) return;
+
+      const decision = getViewportSyncDecision(snapshot);
+      if (decision.action !== "repair-to-bottom") return;
+
+      viewport.scrollTop = decision.scrollTop;
+      e.stopImmediatePropagation();
+    }, { capture: true });
+
+    tab.viewportGuardsInstalled = true;
+  }
+
   /** Create terminal infrastructure (PTY, xterm config) but do NOT open into DOM yet */
   private createTerminalInstance(id: string, preset: Preset | null): TabInstance {
     const colors = this.getThemeColors();
@@ -600,6 +677,7 @@ export class TerminalView extends ItemView {
       cursorFrameId: null,
       cursorDecoration: null,
       cursorMarker: null,
+      viewportGuardsInstalled: false,
     };
 
     termEl.addEventListener("focusin", () => {
@@ -614,6 +692,7 @@ export class TerminalView extends ItemView {
 
     pty.on("data", (data: string) => {
       writer.enqueue(data);
+      this.scheduleFitAll(80);
     });
     pty.on("exit", () => {
       writer.enqueue("\r\n\x1b[90m[Process exited]\x1b[0m\r\n");
@@ -637,6 +716,7 @@ export class TerminalView extends ItemView {
       tab.terminal.open(tab.el);
     }
 
+    this.installViewportGuards(tab);
     tab.pty.start();
     this.fitTab(tab);
     tab.timers.push(setTimeout(() => {
@@ -892,10 +972,22 @@ export class TerminalView extends ItemView {
 
     const prevCols = tab.terminal.cols;
     const prevRows = tab.terminal.rows;
+    const activeBuffer = tab.terminal.buffer.active;
+    const wasAtBottom = activeBuffer.viewportY >= activeBuffer.baseY;
+    const viewportY = activeBuffer.viewportY;
+
     tab.fitAddon.fit();
+    this.syncViewportScrollArea(tab);
 
     if (tab.terminal.cols !== prevCols || tab.terminal.rows !== prevRows) {
       tab.pty.resize(tab.terminal.cols, tab.terminal.rows);
+    }
+
+    if (wasAtBottom) {
+      tab.terminal.scrollToBottom();
+      this.repairBottomViewport(tab);
+    } else {
+      tab.terminal.scrollToLine(Math.min(viewportY, tab.terminal.buffer.active.baseY));
     }
   }
 
@@ -918,7 +1010,9 @@ export class TerminalView extends ItemView {
   writeOutput(text: string): void {
     const tab = this.getTab(this.activeTabId)
       ?? (this.splits.length > 0 ? this.getTab(this.splits[this.splits.length - 1].tabId) : null);
-    tab?.writer.enqueue(text);
+    if (!tab) return;
+    tab.writer.enqueue(text);
+    this.scheduleFitAll(80);
   }
 
   private copyNotePath(): void {
