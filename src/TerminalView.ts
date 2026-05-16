@@ -168,15 +168,22 @@ export class TerminalView extends ItemView {
     });
     this.registerDomEvent(scopeTarget, "focusout", (e: FocusEvent) => {
       if (e.relatedTarget instanceof Node && scopeTarget.contains(e.relatedTarget)) return;
+      this.clearUserFocusedTabs();
       if (this.keymapScopeActive) {
         this.app.keymap.popScope(this.keymapScope);
         this.keymapScopeActive = false;
       }
     });
 
-    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.scheduleFitAll(80)));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
+      this.clearUserFocusedTabs();
+      this.scheduleFitAll(80);
+    }));
     this.registerEvent(this.app.workspace.on("layout-change", () => this.scheduleFitAll(80)));
-    this.registerDomEvent(document, "visibilitychange", () => this.scheduleFitAll(80));
+    this.registerDomEvent(document, "visibilitychange", () => {
+      this.clearUserFocusedTabs();
+      this.scheduleFitAll(80);
+    });
 
     this.addTab(this.preset);
   }
@@ -227,6 +234,25 @@ export class TerminalView extends ItemView {
     const dividers = Array.from(this.splitsWrapperEl?.querySelectorAll(".ai-terminal-divider") ?? []);
     if (dividers.length === 0) return;
     dividers[Math.min(splitIdx, dividers.length - 1)]?.remove();
+  }
+
+  private setUserFocusedTab(tab: TabInstance | null, focused: boolean): void {
+    if (!tab) return;
+
+    if (focused) {
+      for (const candidate of this.tabs) {
+        if (candidate !== tab) candidate.el.classList.remove("is-user-focused");
+      }
+      tab.el.classList.add("is-user-focused");
+      return;
+    }
+
+    tab.el.classList.remove("is-user-focused");
+    tab.terminal.blur();
+  }
+
+  private clearUserFocusedTabs(): void {
+    for (const tab of this.tabs) this.setUserFocusedTab(tab, false);
   }
 
   private setSplitsVisible(visible: boolean): void {
@@ -312,7 +338,11 @@ export class TerminalView extends ItemView {
   private primeTerminalRender(tab: TabInstance): void {
     const activeEl = document.activeElement as HTMLElement | null;
     const textarea = tab.el.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement | null;
-    if (activeEl === textarea) return;
+    if (activeEl === textarea) {
+      if (tab.el.classList.contains("is-user-focused")) return;
+      tab.terminal.blur();
+      return;
+    }
     if (activeEl && !tab.el.contains(activeEl) && document.querySelector(".modal")) return;
 
     tab.terminal.focus();
@@ -338,7 +368,6 @@ export class TerminalView extends ItemView {
   private createTerminalInstance(id: string, preset: Preset | null): TabInstance {
     const colors = this.getThemeColors();
     const termEl = createDiv({ cls: "ai-terminal-xterm" });
-    termEl.style.setProperty("--ai-terminal-cursor-empty-fill", colors.termBg);
 
     const terminal = new Terminal({
       fontSize: this.settings.fontSize,
@@ -380,7 +409,12 @@ export class TerminalView extends ItemView {
     terminal.loadAddon(fitAddon);
     termEl.addEventListener("mousedown", () => {
       this.app.workspace.setActiveLeaf(this.leaf, { focus: true });
+      this.setUserFocusedTab(this.getTab(id), true);
       terminal.focus();
+    });
+    termEl.addEventListener("focusout", (e: FocusEvent) => {
+      if (e.relatedTarget instanceof Node && termEl.contains(e.relatedTarget)) return;
+      this.setUserFocusedTab(this.getTab(id), false);
     });
 
     termEl.addEventListener("wheel", (e: WheelEvent) => {
@@ -474,8 +508,8 @@ export class TerminalView extends ItemView {
     }
 
     installTerminalViewportGuards(tab);
-    tab.pty.start();
     this.fitTab(tab);
+    tab.pty.start();
     tab.timers.push(setTimeout(() => {
       if (this.getTab(tab.id) !== tab || !tab.el.isConnected) return;
       this.fitTab(tab);
@@ -511,6 +545,7 @@ export class TerminalView extends ItemView {
   private showTabInMain(tabId: string): void {
     const tab = this.getTab(tabId);
     if (!tab) return;
+    this.clearUserFocusedTabs();
     if (this.activeTabId === tabId && tab.el.parentElement === this.mainPaneEl) {
       this.primeTerminalRender(tab);
       this.scheduleFitAll();

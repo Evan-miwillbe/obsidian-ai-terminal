@@ -11,20 +11,26 @@ assert.match(
 
 assert.match(
   styles,
-  /\.ai-terminal-xterm \.xterm\.focus \.xterm-cursor\.xterm-cursor-blink\.xterm-cursor-block[\s\S]*animation:\s*ai-terminal-cursor-block-blink/,
-  "focused block cursor should blink with the AI Terminal purple cursor animation",
+  /\.ai-terminal-xterm\.is-user-focused \.xterm \.xterm-cursor,[\s\S]*\.ai-terminal-xterm\.is-user-focused \.xterm-rows span\.xterm-bg-257\.xterm-fg-257[\s\S]*background-color:\s*var\(--interactive-accent\)\s*!important[\s\S]*animation:\s*none\s*!important/,
+  "focused terminal cursor should be solid purple and not blink, including Claude's reverse-video cursor",
 );
 
 assert.match(
   styles,
-  /@keyframes ai-terminal-cursor-block-blink[\s\S]*background-color:\s*var\(--interactive-accent\)[\s\S]*outline:\s*1px solid var\(--interactive-accent\)/,
-  "cursor blink should alternate between purple solid and purple outline",
+  /\.ai-terminal-xterm:not\(\.is-user-focused\) \.xterm \.xterm-cursor,[\s\S]*\.ai-terminal-xterm:not\(\.is-user-focused\) \.xterm \.xterm-cursor\.xterm-cursor-block,[\s\S]*\.ai-terminal-xterm:not\(\.is-user-focused\) \.xterm-rows span\.xterm-bg-257\.xterm-fg-257[\s\S]*outline:\s*1px solid var\(--interactive-accent\)\s*!important[\s\S]*animation:\s*ai-terminal-cursor-fill-pulse/,
+  "unfocused terminal cursor should keep a fixed purple outline while the fill pulses, including Claude's reverse-video cursor",
 );
 
 assert.match(
   styles,
-  /box-shadow:\s*inset 0 0 0 999px var\(--ai-terminal-cursor-empty-fill/,
-  "outline phase should cover the solid cursor fill with the terminal background",
+  /@keyframes ai-terminal-cursor-fill-pulse[\s\S]*box-shadow:\s*inset 0 0 0 999px transparent[\s\S]*color-mix\(in srgb, var\(--interactive-accent\) 55%, transparent\)/,
+  "unfocused cursor blinking should pulse only the inner fill while the outline stays visible",
+);
+
+assert.doesNotMatch(
+  styles,
+  /ai-terminal-cursor-block-blink|ai-terminal-cursor-empty-fill|ai-terminal-cursor-outline-blink|focus-within[\s\S]*xterm-cursor/,
+  "cursor styling should not use the old fake block animation, outline visibility blink, or raw xterm focus state",
 );
 
 console.log("terminalCursorStyle tests passed");
