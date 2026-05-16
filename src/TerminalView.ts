@@ -10,6 +10,10 @@ import {
   shouldSuppressBottomWheel,
   type TerminalScrollSnapshot,
 } from "./terminalScrollState";
+import {
+  getTerminalCloseConfirmation,
+  shouldCloseTerminalTab,
+} from "./terminalCloseConfirmation";
 
 export const VIEW_TYPE_TERMINAL = "ai-terminal-view";
 
@@ -813,7 +817,7 @@ export class TerminalView extends ItemView {
     this.bindAction(splitCopyBtn, () => this.copyNotePath());
 
     const closeBtn = rightGroup.createSpan({ cls: "ai-terminal-split-close", text: "×" });
-    this.bindAction(closeBtn, () => this.closeSplit(tab.id));
+    this.bindAction(closeBtn, () => this.requestCloseSplit(tab.id));
 
     const termArea = splitEl.createDiv({ cls: "ai-terminal-split-term" });
     tab.el.style.display = "";
@@ -869,7 +873,7 @@ export class TerminalView extends ItemView {
     this.bindAction(renameBtn, () => this.renameTab(tab.id));
 
     const closeBtn = btn.createSpan({ cls: "ai-terminal-tab-close", text: "×" });
-    this.bindAction(closeBtn, () => this.closeTab(tab.id));
+    this.bindAction(closeBtn, () => this.requestCloseTab(tab.id));
 
     btn.addEventListener("click", () => this.showTabInMain(tab.id));
     btn.addEventListener("dragstart", (e: DragEvent) => {
@@ -913,6 +917,20 @@ export class TerminalView extends ItemView {
     this.disposeTab(tab);
     this.updateTabHighlight();
     this.scheduleFitAll();
+  }
+
+  private requestCloseTab(tabId: string): void {
+    const tab = this.getTab(tabId);
+    if (!tab) return;
+
+    new CloseTerminalTabModal(this.app, tab.name, () => this.closeTab(tabId)).open();
+  }
+
+  private requestCloseSplit(tabId: string): void {
+    const tab = this.getTab(tabId);
+    if (!tab) return;
+
+    new CloseTerminalTabModal(this.app, tab.name, () => this.closeSplit(tabId)).open();
   }
 
   private restoreSplitToMain(tabId: string): void {
@@ -1108,6 +1126,44 @@ class RenameModal extends Modal {
       inputEl.focus();
       inputEl.select();
     }, 50);
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
+class CloseTerminalTabModal extends Modal {
+  constructor(
+    app: import("obsidian").App,
+    private tabName: string,
+    private onConfirm: () => void,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    const content = getTerminalCloseConfirmation(this.tabName);
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h4", { text: content.title });
+    contentEl.createEl("p", { text: content.message });
+
+    const btnRow = contentEl.createDiv({ cls: "ai-terminal-close-confirm-btns" });
+    btnRow.style.cssText = "display:flex;gap:8px;justify-content:flex-end;margin-top:12px;";
+
+    const cancelBtn = btnRow.createEl("button", { text: content.cancelLabel });
+    cancelBtn.addEventListener("click", () => this.close());
+
+    const closeBtn = btnRow.createEl("button", { text: content.confirmLabel, cls: "mod-warning" });
+    closeBtn.addEventListener("click", () => {
+      if (shouldCloseTerminalTab(true)) {
+        this.onConfirm();
+      }
+      this.close();
+    });
+
+    setTimeout(() => cancelBtn.focus(), 50);
   }
 
   onClose(): void {

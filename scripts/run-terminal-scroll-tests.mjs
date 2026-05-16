@@ -2,17 +2,26 @@ import { build } from "esbuild";
 import { mkdir } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 
-const outfile = ".tmp/terminalScrollState.test.cjs";
+const entryPoints = [
+  "tests/terminalScrollState.test.ts",
+  "tests/terminalCloseConfirmation.test.ts",
+];
 
 await mkdir(".tmp", { recursive: true });
-await build({
-  entryPoints: ["tests/terminalScrollState.test.ts"],
-  bundle: true,
-  platform: "node",
-  format: "cjs",
-  outfile,
-  logLevel: "silent",
-});
 
-const result = spawnSync(process.execPath, [outfile], { stdio: "inherit" });
-process.exit(result.status ?? 1);
+for (const entryPoint of entryPoints) {
+  const outfile = `.tmp/${entryPoint.replace(/[\\/]/g, "-").replace(/\.ts$/, ".cjs")}`;
+  await build({
+    entryPoints: [entryPoint],
+    bundle: true,
+    platform: "node",
+    format: "cjs",
+    outfile,
+    logLevel: "silent",
+  });
+
+  const result = spawnSync(process.execPath, [outfile], { stdio: "inherit" });
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1);
+  }
+}
