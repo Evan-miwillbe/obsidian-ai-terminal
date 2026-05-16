@@ -3,7 +3,6 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { PtyProcess } from "./PtyProcess";
 import type { AITerminalSettings, Preset } from "./settings";
-import type { IDecoration, IMarker } from "@xterm/xterm";
 import {
   getWheelViewportSyncDecision,
   getViewportSyncDecision,
@@ -32,10 +31,6 @@ interface TabInstance {
   writer: TerminalWritePump;
   el: HTMLElement;
   timers: ReturnType<typeof setTimeout>[];
-  cursorFocused: boolean;
-  cursorFrameId: number | null;
-  cursorDecoration: IDecoration | null;
-  cursorMarker: IMarker | null;
   viewportGuardsInstalled: boolean;
 }
 
@@ -402,11 +397,6 @@ export class TerminalView extends ItemView {
   private disposeTab(tab: TabInstance): void {
     for (const timer of tab.timers) clearTimeout(timer);
     tab.timers.length = 0;
-    if (tab.cursorFrameId !== null) {
-      window.cancelAnimationFrame(tab.cursorFrameId);
-      tab.cursorFrameId = null;
-    }
-    this.disposeCursorIndicator(tab);
 
     tab.writer.dispose();
     tab.pty.removeAllListeners();
@@ -443,63 +433,6 @@ export class TerminalView extends ItemView {
     Promise.resolve().then(() => {
       if (this.getTab(tab.id) !== tab) return;
       this.focusTerminal(tab);
-    });
-  }
-
-  private disposeCursorIndicator(tab: TabInstance): void {
-    tab.cursorDecoration?.dispose();
-    tab.cursorDecoration = null;
-    tab.cursorMarker?.dispose();
-    tab.cursorMarker = null;
-  }
-
-  private applyCursorIndicatorStyle(tab: TabInstance, element: HTMLElement): void {
-    element.className = "ai-terminal-cursor-indicator";
-    element.classList.toggle("is-focused", tab.cursorFocused);
-    element.classList.toggle("is-blurred", !tab.cursorFocused);
-  }
-
-  private renderCursorIndicator(tab: TabInstance): void {
-    this.disposeCursorIndicator(tab);
-    if (!tab.el.isConnected || !tab.terminal.element) return;
-
-    const marker = tab.terminal.registerMarker(0);
-    if (!marker) return;
-
-    const decoration = tab.terminal.registerDecoration({
-      marker,
-      x: tab.terminal.buffer.active.cursorX,
-      width: 1,
-      height: 1,
-      layer: "top",
-    });
-
-    if (!decoration) {
-      marker.dispose();
-      return;
-    }
-
-    const apply = (element: HTMLElement) => {
-      this.applyCursorIndicatorStyle(tab, element);
-    };
-
-    if (decoration.element) {
-      apply(decoration.element);
-    }
-    decoration.onRender(apply);
-
-    tab.cursorMarker = marker;
-    tab.cursorDecoration = decoration;
-  }
-
-  private scheduleCursorIndicator(tab: TabInstance): void {
-    if (tab.cursorFrameId !== null) {
-      window.cancelAnimationFrame(tab.cursorFrameId);
-    }
-    tab.cursorFrameId = window.requestAnimationFrame(() => {
-      tab.cursorFrameId = null;
-      if (this.getTab(tab.id) !== tab) return;
-      this.renderCursorIndicator(tab);
     });
   }
 
@@ -678,22 +611,8 @@ export class TerminalView extends ItemView {
       writer,
       el: termEl,
       timers,
-      cursorFocused: false,
-      cursorFrameId: null,
-      cursorDecoration: null,
-      cursorMarker: null,
       viewportGuardsInstalled: false,
     };
-
-    termEl.addEventListener("focusin", () => {
-      tab.cursorFocused = true;
-      this.scheduleCursorIndicator(tab);
-    });
-    termEl.addEventListener("focusout", (e: FocusEvent) => {
-      if (e.relatedTarget instanceof Node && termEl.contains(e.relatedTarget)) return;
-      tab.cursorFocused = false;
-      this.scheduleCursorIndicator(tab);
-    });
 
     pty.on("data", (data: string) => {
       writer.enqueue(data);
@@ -707,9 +626,6 @@ export class TerminalView extends ItemView {
     });
     terminal.onData((data: string) => {
       pty.write(data);
-    });
-    terminal.onCursorMove(() => {
-      this.scheduleCursorIndicator(tab);
     });
 
     return tab;
@@ -727,18 +643,14 @@ export class TerminalView extends ItemView {
     tab.timers.push(setTimeout(() => {
       if (this.getTab(tab.id) !== tab || !tab.el.isConnected) return;
       this.fitTab(tab);
-      this.scheduleCursorIndicator(tab);
     }, 50));
     tab.timers.push(setTimeout(() => {
       if (this.getTab(tab.id) !== tab || !tab.el.isConnected) return;
       this.fitTab(tab);
-      this.scheduleCursorIndicator(tab);
     }, 180));
 
-    tab.cursorFocused = true;
     this.focusTerminal(tab);
     this.focusTerminalSoon(tab);
-    this.scheduleCursorIndicator(tab);
     this.scheduleFitAll();
 
     if (preset?.command) {
@@ -763,10 +675,8 @@ export class TerminalView extends ItemView {
     const tab = this.getTab(tabId);
     if (!tab) return;
     if (this.activeTabId === tabId && tab.el.parentElement === this.mainPaneEl) {
-      tab.cursorFocused = true;
       this.focusTerminal(tab);
       this.focusTerminalSoon(tab);
-      this.scheduleCursorIndicator(tab);
       return;
     }
 
@@ -777,10 +687,8 @@ export class TerminalView extends ItemView {
 
     this.activeTabId = tabId;
     this.updateTabHighlight();
-    tab.cursorFocused = true;
     this.focusTerminal(tab);
     this.focusTerminalSoon(tab);
-    this.scheduleCursorIndicator(tab);
     this.scheduleFitAll();
   }
 
@@ -1152,10 +1060,16 @@ class CloseTerminalTabModal extends Modal {
     const btnRow = contentEl.createDiv({ cls: "ai-terminal-close-confirm-btns" });
     btnRow.style.cssText = "display:flex;gap:8px;justify-content:flex-end;margin-top:12px;";
 
-    const cancelBtn = btnRow.createEl("button", { text: content.cancelLabel });
+    const cancelBtn = btnRow.createEl("button", {
+      text: content.cancelLabel,
+      cls: content.cancelButtonClass,
+    });
     cancelBtn.addEventListener("click", () => this.close());
 
-    const closeBtn = btnRow.createEl("button", { text: content.confirmLabel, cls: "mod-warning" });
+    const closeBtn = btnRow.createEl("button", {
+      text: content.confirmLabel,
+      cls: content.confirmButtonClass,
+    });
     closeBtn.addEventListener("click", () => {
       if (shouldCloseTerminalTab(true)) {
         this.onConfirm();

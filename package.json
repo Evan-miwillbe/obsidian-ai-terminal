@@ -1,6 +1,6 @@
 {
   "name": "obsidian-ai-terminal",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "description": "Embedded terminal for AI CLI tools in Obsidian",
   "main": "main.js",
   "scripts": {

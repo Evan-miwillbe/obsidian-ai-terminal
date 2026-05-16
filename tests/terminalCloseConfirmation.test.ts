@@ -9,6 +9,8 @@ const content = getTerminalCloseConfirmation("Claude Code");
 assert.equal(content.title, "Close terminal?");
 assert.equal(content.confirmLabel, "Close");
 assert.equal(content.cancelLabel, "Cancel");
+assert.equal(content.confirmButtonClass, "ai-terminal-confirm-accent");
+assert.equal(content.cancelButtonClass, "ai-terminal-confirm-secondary");
 assert.match(content.message, /Claude Code/);
 assert.match(content.message, /running process/);
 

@@ -3,6 +3,8 @@ export interface TerminalCloseConfirmation {
   message: string;
   confirmLabel: string;
   cancelLabel: string;
+  confirmButtonClass: string;
+  cancelButtonClass: string;
 }
 
 export function getTerminalCloseConfirmation(tabName: string): TerminalCloseConfirmation {
@@ -12,6 +14,8 @@ export function getTerminalCloseConfirmation(tabName: string): TerminalCloseConf
     message: `Close "${safeName}"? The running process in this tab will be stopped.`,
     confirmLabel: "Close",
     cancelLabel: "Cancel",
+    confirmButtonClass: "ai-terminal-confirm-accent",
+    cancelButtonClass: "ai-terminal-confirm-secondary",
   };
 }
 
