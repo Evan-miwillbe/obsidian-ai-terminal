@@ -7,7 +7,6 @@ import {
   getTerminalCloseConfirmation,
   shouldCloseTerminalTab,
 } from "./terminalCloseConfirmation";
-import { withInteractiveShellProfile } from "./terminalShellProfile";
 import {
   createTerminalWritePump,
   type TerminalWritePump,
@@ -30,6 +29,7 @@ interface TabInstance {
   writer: TerminalWritePump;
   el: HTMLElement;
   timers: ReturnType<typeof setTimeout>[];
+  renderPrimeTimer: ReturnType<typeof setTimeout> | null;
   viewportGuardsInstalled: boolean;
 }
 
@@ -309,20 +309,27 @@ export class TerminalView extends ItemView {
     }
   }
 
-  private focusTerminal(tab: TabInstance): void {
-    this.app.workspace.setActiveLeaf(this.leaf, { focus: true });
-    tab.terminal.focus();
+  private primeTerminalRender(tab: TabInstance): void {
     const textarea = tab.el.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement | null;
-    if (textarea && document.activeElement !== textarea) {
-      textarea.focus();
-    }
+    if (document.activeElement === textarea) return;
+
+    tab.terminal.focus();
+    tab.terminal.blur();
   }
 
-  private focusTerminalSoon(tab: TabInstance): void {
-    Promise.resolve().then(() => {
-      if (this.getTab(tab.id) !== tab) return;
-      this.focusTerminal(tab);
-    });
+  private scheduleTerminalRenderPrime(tab: TabInstance, delayMs: number): void {
+    if (tab.renderPrimeTimer) {
+      clearTimeout(tab.renderPrimeTimer);
+      tab.renderPrimeTimer = null;
+    }
+
+    const timer = setTimeout(() => {
+      tab.renderPrimeTimer = null;
+      if (this.getTab(tab.id) !== tab || !tab.el.isConnected) return;
+      this.primeTerminalRender(tab);
+    }, delayMs);
+    tab.renderPrimeTimer = timer;
+    tab.timers.push(timer);
   }
 
   /** Create terminal infrastructure (PTY, xterm config) but do NOT open into DOM yet */
@@ -412,7 +419,7 @@ export class TerminalView extends ItemView {
 
     const vaultPath = (this.app.vault.adapter as any).basePath as string;
     const cwd = this.settings.defaultCwd || vaultPath;
-    const shell = withInteractiveShellProfile(this.settings.defaultShell || "/bin/zsh");
+    const shell = this.settings.defaultShell || "/bin/zsh";
     const pipePath = process.platform === "win32" ? "\\\\.\\pipe\\obsidian-ai-terminal" : "/tmp/obsidian-ai-terminal.sock";
 
     const pty = new PtyProcess(shell, cwd, this.pluginDir, {
@@ -433,11 +440,13 @@ export class TerminalView extends ItemView {
       writer,
       el: termEl,
       timers,
+      renderPrimeTimer: null,
       viewportGuardsInstalled: false,
     };
 
     pty.on("data", (data: string) => {
       writer.enqueue(data);
+      this.scheduleTerminalRenderPrime(tab, 80);
       this.scheduleFitAll(80);
     });
     pty.on("exit", () => {
@@ -471,8 +480,9 @@ export class TerminalView extends ItemView {
       this.fitTab(tab);
     }, 180));
 
-    this.focusTerminal(tab);
-    this.focusTerminalSoon(tab);
+    this.primeTerminalRender(tab);
+    this.scheduleTerminalRenderPrime(tab, 80);
+    this.scheduleTerminalRenderPrime(tab, 220);
     this.scheduleFitAll();
 
     if (preset?.command) {
@@ -497,8 +507,8 @@ export class TerminalView extends ItemView {
     const tab = this.getTab(tabId);
     if (!tab) return;
     if (this.activeTabId === tabId && tab.el.parentElement === this.mainPaneEl) {
-      this.focusTerminal(tab);
-      this.focusTerminalSoon(tab);
+      this.primeTerminalRender(tab);
+      this.scheduleFitAll();
       return;
     }
 
@@ -509,8 +519,7 @@ export class TerminalView extends ItemView {
 
     this.activeTabId = tabId;
     this.updateTabHighlight();
-    this.focusTerminal(tab);
-    this.focusTerminalSoon(tab);
+    this.primeTerminalRender(tab);
     this.scheduleFitAll();
   }
 

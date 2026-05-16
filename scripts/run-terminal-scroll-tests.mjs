@@ -6,8 +6,8 @@ const entryPoints = [
   "tests/terminalScrollState.test.ts",
   "tests/terminalCloseConfirmation.test.ts",
   "tests/terminalWritePump.test.ts",
-  "tests/terminalShellProfile.test.ts",
   "tests/terminalChromeCursor.test.ts",
+  "tests/terminalFocusPolicy.test.ts",
 ];
 
 await mkdir(".tmp", { recursive: true });
