@@ -22,7 +22,8 @@ assert.match(showTabInMain, /primeTerminalRender/, "switching tabs should prime 
 const primeTerminalRender = methodBlock("primeTerminalRender", "\n  /** Create terminal infrastructure");
 assert.match(primeTerminalRender, /tab\.terminal\.focus\(\)/, "render priming should wake xterm's renderer");
 assert.match(primeTerminalRender, /tab\.terminal\.blur\(\)/, "render priming should leave the cursor hollow");
-assert.match(primeTerminalRender, /document\.activeElement === textarea/, "render priming should not blur a terminal the user already clicked");
+assert.match(primeTerminalRender, /activeEl === textarea/, "render priming should not blur a terminal the user already clicked");
+assert.match(primeTerminalRender, /document\.querySelector\("\.modal"\)/, "render priming should not steal focus while a modal is open");
 
 const createTerminalInstance = methodBlock("createTerminalInstance", "\n  /** Start PTY");
 const dataHandler = /pty\.on\("data",\s*\([^)]*\)\s*=>\s*\{[\s\S]*?\n\s*\}\);/.exec(createTerminalInstance)?.[0] ?? "";

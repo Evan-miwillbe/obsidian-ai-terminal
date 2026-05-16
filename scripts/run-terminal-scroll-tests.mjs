@@ -7,6 +7,7 @@ const entryPoints = [
   "tests/terminalCloseConfirmation.test.ts",
   "tests/terminalWritePump.test.ts",
   "tests/terminalChromeCursor.test.ts",
+  "tests/terminalCursorStyle.test.ts",
   "tests/terminalFocusPolicy.test.ts",
 ];
 

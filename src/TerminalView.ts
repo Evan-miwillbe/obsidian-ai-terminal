@@ -310,8 +310,10 @@ export class TerminalView extends ItemView {
   }
 
   private primeTerminalRender(tab: TabInstance): void {
+    const activeEl = document.activeElement as HTMLElement | null;
     const textarea = tab.el.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement | null;
-    if (document.activeElement === textarea) return;
+    if (activeEl === textarea) return;
+    if (activeEl && !tab.el.contains(activeEl) && document.querySelector(".modal")) return;
 
     tab.terminal.focus();
     tab.terminal.blur();
@@ -336,12 +338,14 @@ export class TerminalView extends ItemView {
   private createTerminalInstance(id: string, preset: Preset | null): TabInstance {
     const colors = this.getThemeColors();
     const termEl = createDiv({ cls: "ai-terminal-xterm" });
+    termEl.style.setProperty("--ai-terminal-cursor-empty-fill", colors.termBg);
 
     const terminal = new Terminal({
       fontSize: this.settings.fontSize,
       fontFamily: this.settings.fontFamily,
-      cursorBlink: true,
+      cursorBlink: false,
       cursorStyle: "block",
+      cursorInactiveStyle: "outline",
       allowProposedApi: true,
       scrollback: 1000,
       fastScrollModifier: "alt",
@@ -350,6 +354,7 @@ export class TerminalView extends ItemView {
         background: colors.termBg,
         foreground: colors.fg,
         cursor: colors.accent,
+        cursorAccent: colors.isDark ? "#1e1f26" : "#ffffff",
         selectionBackground: colors.isDark ? "#264f78" : "#add6ff",
         selectionForeground: colors.isDark ? "#ffffff" : "#000000",
         black: colors.faint,
