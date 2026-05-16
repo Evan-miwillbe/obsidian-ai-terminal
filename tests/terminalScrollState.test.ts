@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  getWheelViewportSyncDecision,
   getViewportSyncDecision,
   shouldSuppressBottomWheel,
   type TerminalScrollSnapshot,
@@ -43,6 +44,18 @@ assert.deepEqual(
   getViewportSyncDecision(snapshot({ viewportY: 80, scrollTop: 0 })),
   { action: "none", scrollTop: 0 },
   "non-bottom buffers should not be forced back to the bottom",
+);
+
+assert.deepEqual(
+  getWheelViewportSyncDecision(snapshot({ scrollTop: 1680 }), -100),
+  { action: "none", scrollTop: 1680 },
+  "wheel-up from bottom must be left to xterm instead of being repaired back to the bottom",
+);
+
+assert.deepEqual(
+  getWheelViewportSyncDecision(snapshot({ scrollTop: 0 }), 100),
+  { action: "repair-to-bottom", scrollTop: 1920 },
+  "wheel-down in a corrupted bottom viewport should repair the DOM scroll position",
 );
 
 assert.deepEqual(

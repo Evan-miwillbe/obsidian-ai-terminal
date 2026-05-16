@@ -5,6 +5,7 @@ import { PtyProcess } from "./PtyProcess";
 import type { AITerminalSettings, Preset } from "./settings";
 import type { IDecoration, IMarker } from "@xterm/xterm";
 import {
+  getWheelViewportSyncDecision,
   getViewportSyncDecision,
   shouldSuppressBottomWheel,
   type TerminalScrollSnapshot,
@@ -516,7 +517,7 @@ export class TerminalView extends ItemView {
   }
 
   private syncViewportScrollArea(tab: TabInstance): void {
-    const internalViewport = (tab.terminal as any).viewport;
+    const internalViewport = (tab.terminal as any)._core?.viewport ?? (tab.terminal as any).viewport;
     internalViewport?.syncScrollArea?.(true);
   }
 
@@ -540,27 +541,27 @@ export class TerminalView extends ItemView {
     tab.el.addEventListener("wheel", (e: WheelEvent) => {
       if (e.ctrlKey) return;
 
-      this.repairBottomViewport(tab);
       const snapshot = this.getScrollSnapshot(tab);
-      if (!snapshot || !shouldSuppressBottomWheel(snapshot, e.deltaY)) return;
+      if (!snapshot || e.deltaY <= 0) return;
 
-      e.preventDefault();
-      e.stopPropagation();
-      e.stopImmediatePropagation();
-      viewport.scrollTop = snapshot.maxScrollTop;
-      tab.terminal.scrollToBottom();
+      const decision = getWheelViewportSyncDecision(snapshot, e.deltaY);
+      if (decision.action === "repair-to-bottom") {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        viewport.scrollTop = decision.scrollTop;
+        tab.terminal.scrollToBottom();
+        return;
+      }
+
+      if (shouldSuppressBottomWheel(snapshot, e.deltaY)) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        viewport.scrollTop = snapshot.maxScrollTop;
+        tab.terminal.scrollToBottom();
+      }
     }, { capture: true, passive: false });
-
-    viewport.addEventListener("scroll", (e: Event) => {
-      const snapshot = this.getScrollSnapshot(tab);
-      if (!snapshot) return;
-
-      const decision = getViewportSyncDecision(snapshot);
-      if (decision.action !== "repair-to-bottom") return;
-
-      viewport.scrollTop = decision.scrollTop;
-      e.stopImmediatePropagation();
-    }, { capture: true });
 
     tab.viewportGuardsInstalled = true;
   }

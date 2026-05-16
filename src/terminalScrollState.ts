@@ -21,6 +21,17 @@ export function shouldSuppressBottomWheel(
   return deltaY > 0 && snapshot.maxScrollTop > 0 && isAtBufferBottom(snapshot);
 }
 
+export function getWheelViewportSyncDecision(
+  snapshot: TerminalScrollSnapshot,
+  deltaY: number,
+): ViewportSyncDecision {
+  if (deltaY <= 0) {
+    return { action: "none", scrollTop: snapshot.scrollTop };
+  }
+
+  return getViewportSyncDecision(snapshot);
+}
+
 export function getViewportSyncDecision(snapshot: TerminalScrollSnapshot): ViewportSyncDecision {
   if (snapshot.maxScrollTop <= 0) {
     return { action: "none", scrollTop: snapshot.scrollTop };
