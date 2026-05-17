@@ -17,8 +17,8 @@ assert.match(
 
 assert.match(
   styles,
-  /\.ai-terminal-cursor-overlay[\s\S]*border:\s*0[\s\S]*background-color:\s*var\(--ai-terminal-cursor-empty-fill, var\(--background-primary\)\)/,
-  "terminal cursor overlay should mask the fast native cursor without drawing a hollow outline",
+  /\.ai-terminal-cursor-overlay[\s\S]*border:\s*1px solid var\(--interactive-accent\)[\s\S]*background-color:\s*var\(--ai-terminal-cursor-empty-fill, var\(--background-primary\)\)/,
+  "terminal cursor overlay should blink between a transparent purple frame and a solid purple block while masking the fast native cursor",
 );
 
 assert.match(
@@ -41,8 +41,8 @@ assert.match(
 
 assert.doesNotMatch(
   styles,
-  /ai-terminal-cursor-block-blink|ai-terminal-cursor-outline-blink|ai-terminal-cursor-fill-pulse|border:\s*1px solid var\(--interactive-accent\)|focus-within[\s\S]*xterm-cursor|xterm-rows span\.xterm-bg-257/,
-  "cursor styling should not use the old fake block animation, pulse animation, hollow outline, raw xterm focus state, or Claude-specific reverse-video spans",
+  /ai-terminal-cursor-block-blink|ai-terminal-cursor-outline-blink|ai-terminal-cursor-fill-pulse|inset:\s*1px|focus-within[\s\S]*xterm-cursor|xterm-rows span\.xterm-bg-257/,
+  "cursor styling should not use the old fake block animation, pulse animation, shrunken inner fill, raw xterm focus state, or Claude-specific reverse-video spans",
 );
 
 console.log("terminalCursorStyle tests passed");
