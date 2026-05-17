@@ -30,6 +30,9 @@ interface TabInstance {
   el: HTMLElement;
   timers: ReturnType<typeof setTimeout>[];
   renderPrimeTimer: ReturnType<typeof setTimeout> | null;
+  cursorOverlayEl: HTMLElement | null;
+  cursorFrameId: number | null;
+  cursorDisposables: { dispose(): void }[];
   viewportGuardsInstalled: boolean;
 }
 
@@ -202,6 +205,7 @@ export class TerminalView extends ItemView {
       muted: isDark ? "#9ca0ab" : "#5a5d68",
       faint: isDark ? "#6e7280" : "#8b8f9a",
       termBg: isDark ? "#1e1f26ee" : "#f5f5f5ee",
+      cursorEmptyFill: isDark ? "#1e1f26" : "#f5f5f5",
       accent,
     };
   }
@@ -244,15 +248,77 @@ export class TerminalView extends ItemView {
         if (candidate !== tab) candidate.el.classList.remove("is-user-focused");
       }
       tab.el.classList.add("is-user-focused");
+      this.scheduleCursorOverlaySync(tab);
       return;
     }
 
     tab.el.classList.remove("is-user-focused");
     tab.terminal.blur();
+    this.scheduleCursorOverlaySync(tab);
   }
 
   private clearUserFocusedTabs(): void {
     for (const tab of this.tabs) this.setUserFocusedTab(tab, false);
+  }
+
+  private ensureCursorOverlay(tab: TabInstance): HTMLElement | null {
+    const screen = tab.el.querySelector(".xterm-screen") as HTMLElement | null;
+    if (!screen) return null;
+
+    if (tab.cursorOverlayEl?.isConnected) return tab.cursorOverlayEl;
+
+    const overlay = tab.cursorOverlayEl ?? createDiv({ cls: "ai-terminal-cursor-overlay" });
+    overlay.setAttribute("aria-hidden", "true");
+    screen.appendChild(overlay);
+    tab.cursorOverlayEl = overlay;
+    return overlay;
+  }
+
+  private syncCursorOverlay(tab: TabInstance): void {
+    tab.cursorFrameId = null;
+
+    const overlay = this.ensureCursorOverlay(tab);
+    const screen = tab.el.querySelector(".xterm-screen") as HTMLElement | null;
+    if (!overlay || !screen || !tab.el.isConnected || tab.el.offsetParent === null) {
+      if (overlay) overlay.style.display = "none";
+      return;
+    }
+
+    const rect = screen.getBoundingClientRect();
+    const cols = Math.max(1, tab.terminal.cols);
+    const rows = Math.max(1, tab.terminal.rows);
+    const cellW = rect.width / cols;
+    const cellH = rect.height / rows;
+    if (cellW <= 0 || cellH <= 0) {
+      overlay.style.display = "none";
+      return;
+    }
+
+    const buffer = tab.terminal.buffer.active;
+    const row = buffer.cursorY + buffer.baseY - buffer.viewportY;
+    if (row < 0 || row >= rows) {
+      overlay.style.display = "none";
+      return;
+    }
+
+    const col = Math.max(0, Math.min(buffer.cursorX, cols - 1));
+    overlay.style.display = "";
+    overlay.style.width = `${cellW}px`;
+    overlay.style.height = `${cellH}px`;
+    overlay.style.transform = `translate(${col * cellW}px, ${row * cellH}px)`;
+  }
+
+  private scheduleCursorOverlaySync(tab: TabInstance): void {
+    if (tab.cursorFrameId !== null) return;
+    tab.cursorFrameId = window.requestAnimationFrame(() => this.syncCursorOverlay(tab));
+  }
+
+  private syncCursorOverlayNow(tab: TabInstance): void {
+    if (tab.cursorFrameId !== null) {
+      window.cancelAnimationFrame(tab.cursorFrameId);
+      tab.cursorFrameId = null;
+    }
+    this.syncCursorOverlay(tab);
   }
 
   private setSplitsVisible(visible: boolean): void {
@@ -323,6 +389,14 @@ export class TerminalView extends ItemView {
     }
 
     try {
+      for (const disposable of tab.cursorDisposables) disposable.dispose();
+      tab.cursorDisposables.length = 0;
+      if (tab.cursorFrameId !== null) {
+        window.cancelAnimationFrame(tab.cursorFrameId);
+        tab.cursorFrameId = null;
+      }
+      tab.cursorOverlayEl?.remove();
+      tab.cursorOverlayEl = null;
       tab.terminal.dispose();
     } catch (err) {
       console.error("AI Terminal: failed to dispose terminal.", err);
@@ -339,14 +413,19 @@ export class TerminalView extends ItemView {
     const activeEl = document.activeElement as HTMLElement | null;
     const textarea = tab.el.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement | null;
     if (activeEl === textarea) {
-      if (tab.el.classList.contains("is-user-focused")) return;
+      if (tab.el.classList.contains("is-user-focused")) {
+        this.scheduleCursorOverlaySync(tab);
+        return;
+      }
       tab.terminal.blur();
+      this.scheduleCursorOverlaySync(tab);
       return;
     }
     if (activeEl && !tab.el.contains(activeEl) && document.querySelector(".modal")) return;
 
-    tab.terminal.focus();
+    tab.terminal.refresh(0, Math.max(0, tab.terminal.rows - 1));
     tab.terminal.blur();
+    this.scheduleCursorOverlaySync(tab);
   }
 
   private scheduleTerminalRenderPrime(tab: TabInstance, delayMs: number): void {
@@ -368,6 +447,7 @@ export class TerminalView extends ItemView {
   private createTerminalInstance(id: string, preset: Preset | null): TabInstance {
     const colors = this.getThemeColors();
     const termEl = createDiv({ cls: "ai-terminal-xterm" });
+    termEl.style.setProperty("--ai-terminal-cursor-empty-fill", colors.cursorEmptyFill);
 
     const terminal = new Terminal({
       fontSize: this.settings.fontSize,
@@ -480,11 +560,19 @@ export class TerminalView extends ItemView {
       el: termEl,
       timers,
       renderPrimeTimer: null,
+      cursorOverlayEl: null,
+      cursorFrameId: null,
+      cursorDisposables: [],
       viewportGuardsInstalled: false,
     };
+    tab.cursorDisposables.push(
+      terminal.onCursorMove(() => this.syncCursorOverlayNow(tab)),
+      terminal.onRender(() => this.scheduleCursorOverlaySync(tab)),
+    );
 
     pty.on("data", (data: string) => {
       writer.enqueue(data);
+      this.scheduleCursorOverlaySync(tab);
       this.scheduleTerminalRenderPrime(tab, 80);
       this.scheduleFitAll(80);
     });
@@ -787,6 +875,7 @@ export class TerminalView extends ItemView {
     } else {
       tab.terminal.scrollToLine(Math.min(viewportY, tab.terminal.buffer.active.baseY));
     }
+    this.scheduleCursorOverlaySync(tab);
   }
 
   private fitAll(): void {
