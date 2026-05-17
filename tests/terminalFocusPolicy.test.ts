@@ -46,6 +46,9 @@ assert.match(dataHandler, /scheduleCursorOverlaySync/, "PTY output should keep t
 assert.match(source, /active-leaf-change[\s\S]*clearUserFocusedTabs/, "returning from another Obsidian tab should not leave Claude Code in solid cursor mode");
 assert.match(source, /ensureCursorOverlay/, "the visible terminal cursor should be owned by a stable overlay rather than Claude Code's blinking reverse-video cell");
 assert.match(source, /cancelAnimationFrame\(tab\.cursorFrameId\)/, "immediate cursor sync should cancel a pending frame so Claude Code cannot expose a stale black cursor between frames");
+assert.match(source, /getClaudePromptCursorMetrics/, "Claude Code prompt rows should override xterm's padded line-end cursor position");
+assert.match(source, /startsWith\("\\u276f"\)/, "Claude prompt detection should handle the escaped prompt glyph");
+assert.match(source, /measureTextEnd/, "Claude prompt cursor placement should use DOM text measurement rather than assuming the xterm buffer cursor column");
 assert.doesNotMatch(source, /new MutationObserver|ai-terminal-claude-cursor-cell|includes\("\\u276f"\)/, "cursor handling should not depend on a specific Claude prompt glyph or mutate xterm rows");
 
 console.log("terminalFocusPolicy tests passed");

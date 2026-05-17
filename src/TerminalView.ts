@@ -274,6 +274,86 @@ export class TerminalView extends ItemView {
     return overlay;
   }
 
+  private isClaudePromptRowText(text: string): boolean {
+    return text.startsWith("\u276f") || text.startsWith("\u203a") || text.startsWith("> ");
+  }
+
+  private isVisibleCursorSpan(span: HTMLElement): boolean {
+    const style = getComputedStyle(span);
+    const bg = style.backgroundColor;
+    return bg !== "" && bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)" && span.getBoundingClientRect().width > 0;
+  }
+
+  private measureTextEnd(row: HTMLElement, textUnits: number): number | null {
+    const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+    let remaining = textUnits;
+    let firstText: Text | null = null;
+    let node = walker.nextNode() as Text | null;
+
+    while (node) {
+      if (!firstText) firstText = node;
+      if (remaining <= node.data.length) {
+        const range = document.createRange();
+        range.setStart(firstText, 0);
+        range.setEnd(node, remaining);
+        const rect = range.getBoundingClientRect();
+        range.detach();
+        return rect.right;
+      }
+
+      remaining -= node.data.length;
+      node = walker.nextNode() as Text | null;
+    }
+
+    return null;
+  }
+
+  private getClaudePromptCursorMetrics(
+    tab: TabInstance,
+    screen: HTMLElement,
+    cellW: number,
+    cellH: number,
+  ): { x: number; y: number; width: number; height: number } | null {
+    const rowsEl = tab.el.querySelector(".xterm-rows");
+    if (!rowsEl) return null;
+
+    const screenRect = screen.getBoundingClientRect();
+    const rows = Array.from(rowsEl.querySelectorAll(":scope > div")) as HTMLElement[];
+    for (let idx = rows.length - 1; idx >= 0; idx--) {
+      const row = rows[idx];
+      const text = row.textContent ?? "";
+      if (!this.isClaudePromptRowText(text)) continue;
+
+      const rowRect = row.getBoundingClientRect();
+      const cursorSpan = (Array.from(row.querySelectorAll(":scope > span")) as HTMLElement[])
+        .find((span) => this.isVisibleCursorSpan(span) && span.getBoundingClientRect().width <= cellW * 2);
+      if (cursorSpan) {
+        const rect = cursorSpan.getBoundingClientRect();
+        return {
+          x: rect.left - screenRect.left,
+          y: rowRect.top - screenRect.top,
+          width: Math.max(cellW, rect.width),
+          height: Math.max(cellH, rowRect.height),
+        };
+      }
+
+      const visibleText = text.replace(/[ ]+$/u, "");
+      const textUnits = Math.max(visibleText.length, Math.min(text.length, 2));
+      const measuredRight = this.measureTextEnd(row, textUnits);
+      const measuredX = measuredRight === null ? cellW * textUnits : measuredRight - screenRect.left;
+      const maxX = Math.max(0, (tab.terminal.cols - 1) * cellW);
+
+      return {
+        x: Math.max(0, Math.min(Math.round(measuredX / cellW) * cellW, maxX)),
+        y: rowRect.top - screenRect.top,
+        width: cellW,
+        height: Math.max(cellH, rowRect.height),
+      };
+    }
+
+    return null;
+  }
+
   private syncCursorOverlay(tab: TabInstance): void {
     tab.cursorFrameId = null;
 
@@ -291,6 +371,15 @@ export class TerminalView extends ItemView {
     const cellH = rect.height / rows;
     if (cellW <= 0 || cellH <= 0) {
       overlay.style.display = "none";
+      return;
+    }
+
+    const claudeCursor = this.getClaudePromptCursorMetrics(tab, screen, cellW, cellH);
+    if (claudeCursor) {
+      overlay.style.display = "";
+      overlay.style.width = `${claudeCursor.width}px`;
+      overlay.style.height = `${claudeCursor.height}px`;
+      overlay.style.transform = `translate(${claudeCursor.x}px, ${claudeCursor.y}px)`;
       return;
     }
 
