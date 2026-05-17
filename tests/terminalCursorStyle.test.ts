@@ -23,8 +23,8 @@ assert.match(
 
 assert.match(
   styles,
-  /\.ai-terminal-cursor-overlay::after[\s\S]*animation:\s*ai-terminal-cursor-fill-pulse 1\.15s ease-in-out infinite/,
-  "unfocused terminal cursor should pulse only the overlay's inner fill",
+  /\.ai-terminal-cursor-overlay::after[\s\S]*animation:\s*ai-terminal-cursor-fill-blink 1\.05s steps\(1, end\) infinite/,
+  "unfocused terminal cursor should blink the overlay's solid inner fill without pulsing",
 );
 
 assert.match(
@@ -35,14 +35,14 @@ assert.match(
 
 assert.match(
   styles,
-  /@keyframes ai-terminal-cursor-fill-pulse[\s\S]*0%, 100%\s*\{\s*opacity:\s*0;[\s\S]*50%\s*\{\s*opacity:\s*0\.55;/,
-  "unfocused cursor blinking should pulse only the inner fill while the outline stays visible",
+  /@keyframes ai-terminal-cursor-fill-blink[\s\S]*0%, 49%\s*\{\s*opacity:\s*0;[\s\S]*50%, 100%\s*\{\s*opacity:\s*1;/,
+  "unfocused cursor blinking should switch the inner fill between transparent and solid while the outline stays visible",
 );
 
 assert.doesNotMatch(
   styles,
-  /ai-terminal-cursor-block-blink|ai-terminal-cursor-outline-blink|focus-within[\s\S]*xterm-cursor|xterm-rows span\.xterm-bg-257/,
-  "cursor styling should not use the old fake block animation, outline visibility blink, raw xterm focus state, or Claude-specific reverse-video spans",
+  /ai-terminal-cursor-block-blink|ai-terminal-cursor-outline-blink|ai-terminal-cursor-fill-pulse|focus-within[\s\S]*xterm-cursor|xterm-rows span\.xterm-bg-257/,
+  "cursor styling should not use the old fake block animation, pulse animation, outline visibility blink, raw xterm focus state, or Claude-specific reverse-video spans",
 );
 
 console.log("terminalCursorStyle tests passed");
